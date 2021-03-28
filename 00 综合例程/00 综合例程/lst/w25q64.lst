@@ -1,0 +1,471 @@
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE W25Q64
+OBJECT MODULE PLACED IN .\obj\w25q64.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\w25q64.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\ls
+                    -t\w25q64.lst) OBJECT(.\obj\w25q64.obj)
+
+line level    source
+
+   1          #include "w25q64.h"
+   2          #include "spi.h"
+   3          
+   4          
+   5          #define FOSC MAIN_Fosc
+   6          
+   7          /************对SPCTL寄存器的设置位宏定义*************/
+   8          #define SSIG    0x80  //SS引脚忽略
+   9          #define SPEN    0x40  //SPI使能位
+  10          #define DORD    0x20  //SPI数据发送LSB最先发送
+  11          #define MSTR    0x10  //主从模式选择
+  12          #define CPOL    0x08  //SPICLK空闲时为高电平
+  13          #define CPHA    0x04  //数据在SPICLK的前时钟沿驱动,并在后时钟沿采样
+  14          #define SP_CLK0 0x00  //SPI时钟频率为CPU_CLK/4
+  15          #define SP_CLK1 0x01  //SPI时钟频率为CPU_CLK/16
+  16          #define SP_CLK2 0x02  //SPI时钟频率为CPU_CLK/64
+  17          #define SP_CLK3 0x03  //SPI时钟频率为CPU_CLK/128
+  18          /************对SPSTAT寄存器的设置位宏定义************/
+  19          #define SPIF    0x80  //传输完成标志
+  20          #define WCOL    0x40  //SPI写冲突标志              
+  21          
+  22          /****************************************
+  23          *函数名称:Spi0MasterInit
+  24          *输    入:无
+  25          *输    出:无
+  26          *功    能:SPI0初始化为主机模式
+  27          ******************************************/
+  28          void SpiMasterInit(void)
+  29          {
+  30   1      #if 0
+                               /* SPI MISO P1.4输入*/
+                              P1M1|=  1<<4 ;
+                              P1M0&=~(1<<4);
+                               
+                               /* SPI MOSI,SCK,CS P1.2,P1.3,P1.5推挽输出*/
+                              P1M1&=~((1<<2)|(1<<3)|(1<<5));
+                              P1M0|=  (1<<2)|(1<<3)|(1<<5);
+                               
+                  SPI_CS(1);
+                              SPI_MOSI(1);
+                              SPI_SCK(1);
+              #else   
+  43   1                      P1M1&=~(1<<2);
+  44   1                      P1M0|= (1<<2);
+  45   1          SPDAT  = 0;         //清空数据寄存器
+  46   1          SPSTAT = SPIF|WCOL; //清空SPI状态寄存器
+  47   1                      
+  48   1      #if FOSC==33000000UL            
+                        SPCTL  = SPEN|MSTR|SP_CLK1|SSIG; //SPI设置为主机模式
+              #else
+  51   1                SPCTL  = SPEN|MSTR|SP_CLK0|SSIG; //SPI设置为主机模式
+  52   1      #endif          
+  53   1          
+  54   1      #endif           
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 2   
+
+  55   1      }
+  56          
+  57          /****************************************
+  58          *函数名称:SpiWriteRead
+  59          *输    入:ucData 要发送的数据
+  60          *输    出:返回字节数据
+  61          *功    能:SPI读写数据
+  62          ******************************************/
+  63          #if 0
+              UINT8 SpiWriteRead(UINT8 d)
+              {
+                  UINT8 i;
+                      
+                        SPI_SCK(0);
+                      
+                  for(i=0; i<8; i++)
+                  {
+                                        /*   发送字节高位 */
+                                  if(d & 0x80)
+                                              {
+                                                       SPI_MOSI(1);
+                                              }
+                                              else
+                                              {
+                                                       SPI_MOSI(0);
+                                              }
+                                              
+                                              /*   接收字节高位 */
+                                              d<<=1;
+                                              
+                                              SPI_SCK(1);
+                                      
+                                              if(SPI_MISO())
+                                              {
+                                                       d|=0x01;
+                                              }
+                                                      
+                                              SPI_SCK(0);
+              
+                              
+                              }       
+                              
+                              return d;
+              }
+              #else
+ 100          
+ 101          
+ 102          
+ 103          
+ 104          UINT8 SpiWriteRead(UINT8 d)
+ 105          {
+ 106   1          SPDAT = d;                  //触发SPI发送数据
+ 107   1          while (!(SPSTAT & SPIF));   //等待发送完成
+ 108   1          SPSTAT = SPIF | WCOL;       //清除SPI状态位
+ 109   1          return SPDAT;               //返回SPI数据
+ 110   1      }
+ 111          #endif
+ 112          
+ 113          /*
+ 114          void SpiSetSpeedLow(void)
+ 115          {
+ 116              SPCTL  &=~SP_CLK3; 
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 3   
+
+ 117                    SPCTL |=SP_CLK3;
+ 118          }
+ 119          
+ 120          void SpiSetSpeedHigh(void)
+ 121          {
+ 122              SPCTL  &=~SP_CLK3; 
+ 123          #if FOSC==33000000UL            
+ 124                    SPCTL  |=SP_CLK1;
+ 125          #else
+ 126                    SPCTL  |=SP_CLK0;
+ 127          #endif
+ 128          }
+ 129          */
+ 130          
+ 131          /*
+ 132          void Delayus(UINT16 i )
+ 133          {
+ 134                  unsigned char j = 0;
+ 135                  for (;i > 0; i--);
+ 136          }*/
+ 137          
+ 138          
+ 139          /****************************************
+ 140          *函数名称:SpiFlashInit
+ 141          *输    入:无
+ 142          *输    出:无
+ 143          *功    能:初始化SPI FLASH的IO口
+ 144          ******************************************/
+ 145          void SpiFlashInit(void)
+ 146          {
+ 147   1           /* Flash CS P1.0推挽输出*/
+ 148   1               P4M1&=~(1<<0);
+ 149   1               P4M0&=  ~(1<<0);
+ 150   1               
+ 151   1           SpiMasterInit();
+ 152   1      }  
+ 153          /****************************************
+ 154          *函数名称:SpiFlashReadSR
+ 155          *输    入:无
+ 156          *输    出:忙标记位(1,忙;0,空闲)
+ 157          *功    能:读取SPI_FLASH的状态寄存器
+ 158          BIT7  6   5   4   3   2   1   0
+ 159          SPR   RV  TB BP2 BP1 BP0 WEL BUSY
+ 160          SPR:默认0,状态寄存器保护位,配合WP使用
+ 161          TB,BP2,BP1,BP0:FLASH区域写保护设置
+ 162          WEL:写使能锁定
+ 163          BUSY:忙标记位(1,忙;0,空闲)
+ 164          默认:0x00
+ 165          ******************************************/
+ 166          UINT8 SpiFlashReadSR(void)   
+ 167          {  
+ 168   1              UINT8 rt=0;   
+ 169   1              SPI_FLASH_CS(0);                      //使能器件   
+ 170   1              SpiWriteRead(W25X_ReadStatusReg);    //发送读取状态寄存器命令    
+ 171   1              rt=SpiWriteRead(0Xff);               //读取一个字节  
+ 172   1              SPI_FLASH_CS(1);                      //取消片选     
+ 173   1              return rt;   
+ 174   1      } 
+ 175          /****************************************
+ 176          *函数名称:SpiFlashWriteSR
+ 177          *输    入:设置状态值
+ 178          *输    出:无
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 4   
+
+ 179          *功    能:写SPI_FLASH的状态寄存器
+ 180          只有SPR,TB,BP2,BP1,BP0(bit 7,5,4,3,2)可以写
+ 181          *****************************************
+ 182          void SpiFlashWriteSR(UINT8 sr)   
+ 183          {   
+ 184                  SPI_FLASH_CS(0);                      //使能器件   
+ 185                  SpiWriteRead(W25X_WriteStatusReg);   //发送写取状态寄存器命令    
+ 186                  SpiWriteRead(sr);                    //写入一个字节  
+ 187                  SPI_FLASH_CS(1);                      //取消片选                  
+ 188          }   */
+ 189          
+ 190          /****************************************
+ 191          *函数名称:SpiFlashWriteEnable
+ 192          *输    入:无
+ 193          *输    出:无
+ 194          *功    能:SPI_FLASH写使能，WEL置位
+ 195          ******************************************/
+ 196          void SpiFlashWriteEnable(void)   
+ 197          {
+ 198   1              SPI_FLASH_CS(0);                      //使能器件   
+ 199   1        SpiWriteRead(W25X_WriteEnable);      //发送写使能  
+ 200   1              SPI_FLASH_CS(1);                      //取消片选                  
+ 201   1      } 
+ 202          /****************************************
+ 203          *函数名称:SpiFlashWriteDisable
+ 204          *输    入:无
+ 205          *输    出:无
+ 206          *功    能:SPI_FLASH写禁止，将WEL清零   
+ 207          *****************************************
+ 208          void SpiFlashWriteDisable(void)   
+ 209          {  
+ 210                  SPI_FLASH_CS(0);                       //使能器件   
+ 211            SpiWriteRead(W25X_WriteDisable);      //发送写禁止指令    
+ 212                  SPI_FLASH_CS(1);                       //取消片选                 
+ 213          }               */  
+ 214          
+ 215          /****************************************
+ 216          *函数名称:SpiFlashReadID
+ 217          *输    入:无
+ 218          *输    出:                       
+ 219                                                  0XEF13,表示芯片型号为W25Q80  
+ 220                                                  0XEF14,表示芯片型号为W25Q16    
+ 221                                                  0XEF15,表示芯片型号为W25Q32  
+ 222                                                  0XEF16,表示芯片型号为W25Q64 
+ 223          *功    能:读取芯片ID
+ 224          ******************************************/
+ 225          UINT16 SpiFlashReadID(void)
+ 226          {
+ 227   1              UINT16 Temp = 0;          
+ 228   1              SPI_FLASH_CS(0);                                    
+ 229   1              SpiWriteRead(0x90);             //发送读取ID命令      
+ 230   1              SpiWriteRead(0x00);         
+ 231   1              SpiWriteRead(0x00);         
+ 232   1              SpiWriteRead(0x00);                                
+ 233   1              Temp|=SpiWriteRead(0xFF)<<8;  
+ 234   1              Temp|=SpiWriteRead(0xFF);        
+ 235   1              SPI_FLASH_CS(1);                                    
+ 236   1              return Temp;
+ 237   1      }                   
+ 238          /****************************************
+ 239          *函数名称:SpiFlashRead
+ 240          *输    入:pBuffer        -数据存储区
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 5   
+
+ 241                    ReadAddr       -开始读取的地址(24bit)
+ 242                    NumByteToRead  -要读取的字节数(最大65535)
+ 243          *输    出:无
+ 244          *功    能:读取SPI FLASH  
+ 245          ******************************************/
+ 246          void SpiFlashRead(UINT8* pBuffer,UINT32 ReadAddr,UINT16 NumByteToRead)   
+ 247          { 
+ 248   1              UINT16 i;                                                                                   
+ 249   1              SPI_FLASH_CS(0);                         //使能器件   
+ 250   1        SpiWriteRead(W25X_ReadData);            //发送读取命令   
+ 251   1        SpiWriteRead((UINT8)((ReadAddr)>>16));  //发送24bit地址    
+ 252   1        SpiWriteRead((UINT8)((ReadAddr)>>8));   
+ 253   1        SpiWriteRead((UINT8)(ReadAddr&0xFF));   
+ 254   1              
+ 255   1        for(i=0;i<NumByteToRead;i++)
+ 256   1              { 
+ 257   2            pBuffer[i]=SpiWriteRead(0XFF);      //循环读数  
+ 258   2        }
+ 259   1              
+ 260   1              SPI_FLASH_CS(1);                                              
+ 261   1      }  
+ 262          /****************************************
+ 263          *函数名称:SpiFlashWritePage
+ 264          *输    入:pBuffer        -数据存储区
+ 265                    WriteAddr      -开始写入的地址(24bit)
+ 266                    NumByteToWrite -要写入的字节数(最大256),该数不应该超过该页的剩余字节数
+ 267          *输    出:无
+ 268          *功    能:SPI在一页(0~65535)内写入少于256个字节的数据
+ 269          ******************************************/
+ 270          void SpiFlashWritePage(UINT8* pBuffer,UINT32 WriteAddr,UINT16 NumByteToWrite)
+ 271          {
+ 272   1              UINT16 i; 
+ 273   1              
+ 274   1        SpiFlashWriteEnable();                  //SET WEL 
+ 275   1              SPI_FLASH_CS(0);                           //使能器件
+ 276   1              
+ 277   1        SpiWriteRead(W25X_PageProgram);           //发送写页命令   
+ 278   1        SpiWriteRead((UINT8)((WriteAddr)>>16));   //发送24bit地址    
+ 279   1        SpiWriteRead((UINT8)((WriteAddr)>>8));   
+ 280   1        SpiWriteRead((UINT8)WriteAddr);
+ 281   1              
+ 282   1        for(i=0;i<NumByteToWrite;i++)SpiWriteRead(pBuffer[i]);//循环写数  
+ 283   1              
+ 284   1              SPI_FLASH_CS(1);                            //取消片选 
+ 285   1              SpiFlashWaitBusy();                                                 //等待写入结束
+ 286   1      } 
+ 287          /****************************************
+ 288          *函数名称:SpiFlashWriteNoCheck
+ 289          *输    入:pBuffer        -数据存储区
+ 290                    WriteAddr      -开始写入的地址(24bit)
+ 291                    NumByteToWrite -要写入的字节数(最大65535)
+ 292          *输    出:无
+ 293          *功    能:无检验写SPI FLASH 
+ 294          必须确保所写的地址范围内的数据全部为0XFF,
+ 295          否则在非0XFF处写入的数据将失败!
+ 296          具有自动换页功能 
+ 297          在指定地址开始写入指定长度的数据,但是要确保地址不越界!
+ 298          ******************************************/
+ 299          void SpiFlashWriteNoCheck(UINT8* pBuffer,UINT32 WriteAddr,UINT16 NumByteToWrite)   
+ 300          {                                        
+ 301   1              UINT16 pageremain;         
+ 302   1              pageremain=256-WriteAddr%256; //单页剩余的字节数                            
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 6   
+
+ 303   1              if(NumByteToWrite<=pageremain)pageremain=NumByteToWrite;//不大于256个字节
+ 304   1              
+ 305   1              while(1)
+ 306   1              {          
+ 307   2                      SpiFlashWritePage(pBuffer,WriteAddr,pageremain);
+ 308   2                      if(NumByteToWrite==pageremain)break;//写入结束了
+ 309   2                      else //NumByteToWrite>pageremain
+ 310   2                      {
+ 311   3                              pBuffer+=pageremain;
+ 312   3                              WriteAddr+=pageremain;  
+ 313   3      
+ 314   3                              NumByteToWrite-=pageremain;                           //减去已经写入了的字节数
+ 315   3                              if(NumByteToWrite>256)pageremain=256; //一次可以写入256个字节
+ 316   3                              else pageremain=NumByteToWrite;             //不够256个字节了
+ 317   3                      }
+ 318   2              }           
+ 319   1      } 
+ 320          
+ 321          /****************************************
+ 322          *函数名称:SpiFlashWrite
+ 323          *输    入:pBuffer        -数据存储区
+ 324                    WriteAddr      -开始写入的地址(24bit)
+ 325                    NumByteToWrite -要写入的字节数(最大65535)
+ 326          *输    出:无
+ 327          *功    能:写SPI FLASH  
+ 328          在指定地址开始写入指定长度的数据并带擦除操作!
+ 329          ******************************************/
+ 330          void SpiFlashWrite(UINT8* pBuffer,UINT32 WriteAddr,UINT16 NumByteToWrite)   
+ 331          { 
+ 332   1              UINT32   secpos = 0;
+ 333   1              //secpos=WriteAddr>>9;//扇区地址  
+ 334   1              //SpiFlashEraseSector(secpos);//擦除这个扇区
+ 335   1              SpiFlashWriteNoCheck(pBuffer,WriteAddr,NumByteToWrite);//写入整个扇区  
+ 336   1      }
+ 337          /****************************************
+ 338          *函数名称:SpiFlashEraseChip
+ 339          *输    入:无
+ 340          *输    出:无
+ 341          *功    能:擦除整个芯片            
+ 342          *****************************************
+ 343          void SpiFlashEraseChip(void)   
+ 344          {                                   
+ 345              SpiFlashWriteEnable();             //SET WEL 
+ 346              SpiFlashWaitBusy();   
+ 347                  SPI_FLASH_CS(0);                      //使能器件   
+ 348              SpiWriteRead(W25X_ChipErase);        //发送片擦除命令  
+ 349                    SPI_FLASH_CS(1);                      //取消片选                
+ 350                    SpiFlashWaitBusy();                                         //等待芯片擦除结束
+ 351          }   */
+ 352          /****************************************
+ 353          *函数名称:SpiFlashEraseSector
+ 354          *输    入:Dst_Addr  -扇区地址 根据实际容量设置
+ 355          *输    出:无
+ 356          *功    能:擦除一个扇区最少150毫秒
+ 357          ******************************************/
+ 358          void SpiFlashEraseSector(UINT32 Dst_Addr)   
+ 359          {  
+ 360   1       
+ 361   1              Dst_Addr <<= 12;
+ 362   1          SpiFlashWriteEnable();                //SET WEL      
+ 363   1          SpiFlashWaitBusy();   
+ 364   1              SPI_FLASH_CS(0);                         //使能器件   
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 7   
+
+ 365   1          SpiWriteRead(W25X_SectorErase);         //发送扇区擦除指令 
+ 366   1          SpiWriteRead((UINT8)((Dst_Addr)>>16));  //发送24bit地址    
+ 367   1          SpiWriteRead((UINT8)((Dst_Addr)>>8));   
+ 368   1          SpiWriteRead((UINT8)Dst_Addr);  
+ 369   1              SPI_FLASH_CS(1);                         //取消片选               
+ 370   1          SpiFlashWaitBusy();                                          //等待擦除完成
+ 371   1      }  
+ 372          /****************************************
+ 373          *函数名称:SpiFlashWaitBusy
+ 374          *输    入:无
+ 375          *输    出:无
+ 376          *功    能:等待空闲
+ 377          ******************************************/
+ 378          void SpiFlashWaitBusy(void)   
+ 379          {   
+ 380   1              while((SpiFlashReadSR()&0x01)==0x01);  // 等待BUSY位清空
+ 381   1      }  
+ 382          /****************************************
+ 383          *函数名称:SpiFlashPowerDown
+ 384          *输    入:无
+ 385          *输    出:无
+ 386          *功    能:进入掉电模式
+ 387          *****************************************
+ 388          void SpiFlashPowerDown(void)   
+ 389          { 
+ 390                  SPI_FLASH_CS(0);                         //使能器件   
+ 391              SpiWriteRead(W25X_PowerDown);           //发送掉电命令  
+ 392                    SPI_FLASH_CS(1);                         //取消片选             
+ 393              Delayus(3);                              //等待TPD  
+ 394          } */  
+ 395          /****************************************
+ 396          *函数名称:SpiFlashWakeUp
+ 397          *输    入:无
+ 398          *输    出:无
+ 399          *功    能:唤醒
+ 400          *****************************************
+ 401          void SpiFlashWakeUp(void)   
+ 402          {  
+ 403                  SPI_FLASH_CS(0);                            //使能器件   
+ 404              SpiWriteRead(W25X_ReleasePowerDown);       //发送唤醒指令 
+ 405                  SPI_FLASH_CS(1);                            //取消片选            
+ 406              Delayus(3);                                 //等待TRES1
+ 407          }*/   
+ 408          
+ 409          
+ 410          
+ 411          
+ 412          
+ 413          
+ 414          
+ 415          
+ 416          
+ 417          
+ 418          
+ 419          
+ 420          
+ 421          
+ 422          
+ 423          
+ 424          
+ 425          
+ 426          
+C51 COMPILER V9.01   W25Q64                                                                07/21/2018 10:35:44 PAGE 8   
+
+ 427          
+ 428          
+ 429          
+ 430          
+ 431          
+ 432          
+ 433          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    747    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----      46
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

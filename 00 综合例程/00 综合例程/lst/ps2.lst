@@ -1,0 +1,75 @@
+C51 COMPILER V9.01   PS2                                                                   07/21/2018 10:35:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE PS2
+OBJECT MODULE PLACED IN .\obj\ps2.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\ps2.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\lst\p
+                    -s2.lst) OBJECT(.\obj\ps2.obj)
+
+line level    source
+
+   1          #include <intrins.h>
+   2          #include "ps2.h"
+   3          #include "delay.h"
+   4          
+   5          void psx_init(void) {
+   6   1              PS2_ATT = 1;
+   7   1              PS2_CMD = 1;
+   8   1              PS2_CLK = 1;
+   9   1              //PS2_DAT = 0;
+  10   1              //PS2_ACK = 1;
+  11   1              return;
+  12   1      }
+  13          
+  14          unsigned char psx_transfer(unsigned char dat) {
+  15   1              
+  16   1              unsigned char rd_data ,wt_data, i;
+  17   1              wt_data = dat;
+  18   1              rd_data = 0;
+  19   1              for(i = 0;i < 8;i++){
+  20   2                      PS2_CMD = (bit) (wt_data & (0x01 << i));
+  21   2                      PS2_CLK = 1;
+  22   2                      PS2_CLK = 0;
+  23   2                      delay(10);
+  24   2                      PS2_CLK = 1;
+  25   2                      if(PS2_DAT) {
+  26   3                              rd_data |= 0x01<<i;
+  27   3                      }
+  28   2                      delay(10);
+  29   2              }
+  30   1              return rd_data;
+  31   1      }
+  32                  
+  33          
+  34          void psx_write_read(unsigned char *get_buf) {
+  35   1              PS2_ATT = 0;
+  36   1              
+  37   1              get_buf[0] = psx_transfer(START_CMD);
+  38   1              get_buf[1] = psx_transfer(ASK_DAT_CMD);
+  39   1              get_buf[2] = psx_transfer(get_buf[0]);
+  40   1              get_buf[3] = psx_transfer(get_buf[0]);
+  41   1              get_buf[4] = psx_transfer(get_buf[0]);
+  42   1              get_buf[5] = psx_transfer(get_buf[0]);
+  43   1              get_buf[6] = psx_transfer(get_buf[0]);
+  44   1              get_buf[7] = psx_transfer(get_buf[0]);
+  45   1              get_buf[8] = psx_transfer(get_buf[0]);
+  46   1              
+  47   1              PS2_ATT = 1;
+  48   1              return;
+  49   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    307    ----
+   CONSTANT SIZE    =   ----    ----
+C51 COMPILER V9.01   PS2                                                                   07/21/2018 10:35:44 PAGE 2   
+
+   XDATA SIZE       =   ----       6
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

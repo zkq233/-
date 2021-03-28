@@ -1,0 +1,1445 @@
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\obj\main.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\main.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\lst\
+                    -main.lst) OBJECT(.\obj\main.obj)
+
+line level    source
+
+   1          /*
+   2                  1、串口1调试               ok
+   3                  2、串口2调试               ok
+   4                  3、定时器0调试            ok
+   5                  4、定时器1调试            ok
+   6                  5、PS2手柄调试             ok
+   7                  6、4通道PWM调试            ok
+   8                  7、舵机调试                        ok
+   9                  8、W25Q64存储调试  ok
+  10                  
+  11                  调试的过程：
+  12                  如上，一个一个模块调通，最后组合
+  13                  左边的目录结构就是正队每一个模块调试好做成一个模块文件，便于移植
+  14                  
+  15                  看程序方法：
+  16                  看程序的时候，从main文件的main函数看起
+  17                  基本的程序思路是
+  18                  主函数->各个模块初始化->大循环while(1) 
+  19                                                            ->中断(串口、定时器等)
+  20                  大家在深究本程序时，建议大家先去了解各个模块的原理，然后看懂文件结构和
+             -程序结构，最后再细究算法问题
+  21                  
+  22                  智能传感器版本增加内容：
+  23                  所需硬件
+  24                  循迹模块 2个
+  25                  超声波模块 1个
+  26                  颜色识别模块 1个
+  27                  声音模块 1个
+  28                  木块红、蓝、绿各一个
+  29                  
+  30                  IO口分布
+  31                  循迹左       P0^6
+  32                  循迹右       P0^7
+  33                  超声波       P1^6
+  34                  颜色  P1^2
+  35                  声音  P1^0
+  36                  
+  37                  智能识别功能（手柄绿灯模式 左边 上下左右 和 右边 上下左右）
+  38                  
+  39                  功能0 循迹模式
+  40                  功能1 声控夹取
+  41                  功能2 自由避障
+  42                  功能3 颜色识别
+  43                  功能4 定距夹取
+  44                  功能5 跟随功能
+  45                  功能6 循迹避障
+  46                  功能7 循迹识别
+  47                  功能8 循迹定距
+  48                  
+  49                  手动遥控功能
+  50                  1、手柄遥控
+  51                  2、APP遥控
+  52                  3、WIFI遥控
+  53                  
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 2   
+
+  54                  图形化编程功能
+  55                  
+  56                  功能切换：绿灯模式下通过左边上下左右键切换功能，通过蜂鸣器的声音的响声
+             -播报功能
+  57                  
+  58                  
+  59          */
+  60          
+  61          #include <stdio.h>
+  62          #include <string.h>
+  63          #include "stc15.h"
+  64          #include "main.h"
+  65          #include "uart.h"
+  66          #include "delay.h"
+  67          #include "io.h"
+  68          #include "ps2.h"
+  69          #include "pwm.h"
+  70          #include "timer.h"
+  71          #include "w25q64.h"
+  72          #include "global.h"
+  73          #include "adc.h"
+  74          #include "oled.h"
+  75          #include "sensor.h"
+  76          
+  77          u16 adc7_value = 0, adc0_value = 0;
+  78          u16 do_start_index, do_time, group_num_start, group_num_end, group_num_times;
+  79          u8 i;
+  80          u8 car_dw = 1;
+  81          u32 bias_systick_ms_bak = 0;
+  82          u8 djBiasSaveFlag = 0;
+  83          u8 dbt_flag = 0;
+  84          float vol_adc = 0;u32 save_addr_sector = 0, save_action_index_bak = 0;
+  85          u8 psx_buf[9]={0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};   //
+  86          
+  87          code const char *pre_cmd_set_red[PSX_BUTTON_NUM] = {
+  88                  "<PS2_RED01:#005P0600T2000!^$DST!>",    //L2                                              
+  89                  "<PS2_RED02:#005P2400T2000!^$DST!>",    //R2                                              
+  90                  "<PS2_RED03:#004P0600T2000!^$DST!>",    //L1                                              
+  91                  "<PS2_RED04:#004P2400T2000!^$DST!>",    //R1                    
+  92                  "<PS2_RED05:#002P2400T2000!^$DST!>",    //RU                                              
+  93                  "<PS2_RED06:#003P2400T2000!^$DST!>",    //RR                                              
+  94                  "<PS2_RED07:#002P0600T2000!^$DST!>",    //RD                                              
+  95                  "<PS2_RED08:#003P0600T2000!^$DST!>",    //RL                            
+  96                  "<PS2_RED09:$!>",                                               //SE                                      
+  97                  "<PS2_RED10:$!>",                                               //AL                                              
+  98                  "<PS2_RED11:$!>",                                               //AR                                              
+  99                  "<PS2_RED12:$DJR!>",                                    //ST                    
+ 100                  "<PS2_RED13:#001P0600T2000!^$DST!>",    //LU                                              
+ 101                  "<PS2_RED14:#000P0600T2000!^$DST!>",    //LR                                                              
+ 102                  "<PS2_RED15:#001P2400T2000!^$DST!>",    //LD                                              
+ 103                  "<PS2_RED16:#000P2400T2000!^$DST!>",    //LL                                                    
+ 104          };
+ 105          
+ 106          code const char *pre_cmd_set_grn[PSX_BUTTON_NUM] = {
+ 107                  "<PS2_GRN01:$!>",               //L2                                              
+ 108                  "<PS2_GRN02:$!>",               //R2                                              
+ 109                  "<PS2_GRN03:$!>",               //L1                                              
+ 110                  "<PS2_GRN04:$!>",               //R1                    
+ 111                  "<PS2_GRN05:$SMODE5!>", //RU                                              
+ 112                  "<PS2_GRN06:$SMODE8!>", //RR                                              
+ 113                  "<PS2_GRN07:$SMODE6!>", //RD                                              
+ 114                  "<PS2_GRN08:$SMODE7!>", //RL                            
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 3   
+
+ 115                  "<PS2_GRN09:$SMODE0!>",                                 //SE                                      
+ 116                  "<PS2_GRN10:$!>",                                               //AL                                      
+ 117                  "<PS2_GRN11:$!>",                                               //AR                                      
+ 118                  "<PS2_GRN12:$DJR!>",                                    //ST                    
+ 119                  "<PS2_GRN13:$SMODE1!>", //LU                                              
+ 120                  "<PS2_GRN14:$SMODE4!>", //LR                                                              
+ 121                  "<PS2_GRN15:$SMODE2!>", //LD                                              
+ 122                  "<PS2_GRN16:$SMODE3!>", //LL                                              
+ 123          };
+ 124          
+ 125          
+ 126          code const char *action_pre_group[] = {
+ 127              //动作生成数据为(可直接全选复制粘贴到程序中)：
+ 128              //偏差调节组
+ 129              "{G0000#000P1500T1000!#001P1500T1000!#002P1500T1000!#003P1500T1000!#004P1500T1000!#005P1500T1000!}",
+ 130              //直立
+ 131              "{G0001#000P1500T1500!#001P1500T1500!#002P1500T1500!#003P1500T1500!#004P1500T1500!#005P1500T0000!}",
+ 132              //蜷缩
+ 133              "{G0002#000P1500T1500!#001P2200T1500!#002P2500T1500!#003P2000T1500!#004P1500T1500!#005P1500T1500!}",
+ 134              //大前抓右放 K0001(3-11)
+ 135              "{G0003#000P1500T1000!#001P1500T1000!#002P1500T1000!#003P1500T1000!#004P1500T1000!#005P1000T1000!}",
+ 136              "{G0004#000P1500T1000!#001P1100T1000!#002P1600T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 137              "{G0005#000P1500T1500!#001P1050T1500!#002P1600T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 138              "{G0006#000P1500T1000!#001P1800T1000!#002P1800T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 139              "{G0007#000P0800T1000!#001P1500T1000!#002P1500T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 140              "{G0008#000P0800T1000!#001P1300T1000!#002P1800T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 141              "{G0009#000P0800T1000!#001P1300T1000!#002P1800T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 142              "{G0010#000P0800T1000!#001P1600T1000!#002P1800T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 143              "{G0011#000P1500T1500!#001P2200T1500!#002P2500T1500!#003P2000T1500!#004P1500T1500!#005P1500T1500!}",
+ 144              //前爪前放 K0002(12-18)
+ 145              "{G0012#000P1500T1000!#001P1500T1000!#002P1500T1000!#003P1500T1000!#004P1500T1000!#005P1500T1000!}",
+ 146              "{G0013#000P1520T1000!#001P1100T2000!#002P1850T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 147              "{G0014#000P1520T1000!#001P1100T2000!#002P1900T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 148              "{G0015#000P1520T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 149              "{G0016#000P1520T1000!#001P1100T2000!#002P1800T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 150              "{G0017#000P1520T1000!#001P1100T2000!#002P1800T1000!#003P2000T1000!#004P1500T1000!#005P1000T0000!}",
+ 151              "{G0018#000P1500T1500!#001P2200T1500!#002P2500T1500!#003P2000T1500!#004P1500T1500!#005P1500T1500!}",
+ 152              //前爪左放 K0003(19-27)
+ 153              "{G0019#000P1500T1000!#001P1500T1000!#002P1500T1000!#003P1500T1000!#004P1500T1000!#005P1500T1000!}",
+ 154              "{G0020#000P1520T1000!#001P1100T2000!#002P1850T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 155              "{G0021#000P1520T1000!#001P1100T2000!#002P1900T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 156              "{G0022#000P1520T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 157              "{G0023#000P2200T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 158              "{G0024#000P2200T1000!#001P1200T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 159              "{G0025#000P2200T1000!#001P1200T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P1000T0000!}",
+ 160              "{G0026#000P2200T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P1000T1000!}",
+ 161              "{G0027#000P1500T1500!#001P2200T1500!#002P2500T1500!#003P2000T1500!#004P1500T1500!#005P1500T1500!}",
+ 162              //前爪右放 K0004(28-36)
+ 163              "{G0028#000P1500T1000!#001P1500T1000!#002P1500T1000!#003P1500T1000!#004P1500T1000!#005P1500T1000!}",
+ 164              "{G0029#000P1520T1000!#001P1100T2000!#002P1850T1000!#003P2100T1000!#004P1500T1000!#005P1000T0000!}",
+ 165              "{G0030#000P1520T1000!#001P1100T2000!#002P1900T1000!#003P2100T1000!#004P1500T1000!#005P2000T0000!}",
+ 166              "{G0031#000P1520T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 167              "{G0032#000P0800T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 168              "{G0033#000P0800T1000!#001P1200T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P2000T1000!}",
+ 169              "{G0034#000P0800T1000!#001P1200T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P1000T0000!}",
+ 170              "{G0035#000P0800T1000!#001P1800T2000!#002P2000T1000!#003P2000T1000!#004P1500T1000!#005P1000T1000!}",
+ 171              "{G0036#000P1500T1500!#001P2200T1500!#002P2500T1500!#003P2000T1500!#004P1500T1500!#005P1500T1500!}",
+ 172          };
+ 173          
+ 174          /*
+ 175                  代码从main里开始执行
+ 176                  在进入大循环while(1)之前都为各个模块的初始化
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 4   
+
+ 177                  最后在大循环处理持续执行的事情
+ 178                  另外注意uart中的串口中断，接收数据处理
+ 179                  timer中的定时器中断，舵机的脉冲收发就在那里
+ 180          */
+ 181          
+ 182          void main(void) {
+ 183   1              setup_global();                 //初始化全局变量
+ 184   1              setup_gpio();                   //初始化IO口
+ 185   1              setup_nled();                   //初始化工作指示灯
+ 186   1              setup_beep();                   //初始化定时器
+ 187   1              setup_djio();                   //初始化舵机IO口
+ 188   1              setup_sensor();                 //初始化传感器IO口
+ 189   1              setup_w25q64();                 //初始化存储器W25Q64
+ 190   1              setup_ps2();                    //初始化PS2手柄
+ 191   1              setup_vol();                    //初始化电压采集
+ 192   1              setup_car_pwm();                //初始化电机PWM定时
+ 193   1              setup_uart1();                  //初始化串口1
+ 194   1              setup_uart2();                  //初始化串口2
+ 195   1              setup_uart4();                  //初始化串口4
+ 196   1              setup_systick();                //初始化滴答时钟，1S增加一次systick_ms的值
+ 197   1              //setup_oled();                 //初始化OLED
+ 198   1              setup_others();                 //初始化其他
+ 199   1              
+ 200   1              setup_dj_timer();                       //初始化定时器2 处理舵机PWM输出
+ 201   1              setup_interrupt();              //初始化总中断
+ 202   1              
+ 203   1              setup_start();                  //初始化启动信号
+ 204   1          while (1) {
+ 205   2                      loop_nled();                    //循环执行工作指示灯，500ms跳动一次
+ 206   2                      loop_uart();                    //串口数据接收处理
+ 207   2                      loop_action();                  //动作组批量执行
+ 208   2                      loop_bt_once();                 //蓝牙修改波特率和名称
+ 209   2                      loop_ps2_data();                //循环读取PS2手柄数据
+ 210   2                      loop_ps2_button();              //处理手柄上的按钮
+ 211   2                      loop_ps2_car_pwm();             //处理小车电机摇杆控制
+ 212   2                      loop_save_something();  //定时保存一些变量
+ 213   2                      //loop_vol_warning();   //处理低压报警
+ 214   2                      //loop_oled_display();  //处理OLED显示
+ 215   2                      loop_smart_sensor();    //处理智能传感器功能
+ 216   2              }
+ 217   1      }
+ 218          
+ 219          //--------------------------------------------------------------------------------
+ 220          /*
+ 221                  初始化函数实现
+ 222          */
+ 223          //初始化全局变量
+ 224          void setup_global(void) {
+ 225   1              //全局变量初始化
+ 226   1              global_init();
+ 227   1      }
+ 228          //初始化IO口
+ 229          void setup_gpio(void) {
+ 230   1              //IO初始化
+ 231   1              io_init();
+ 232   1      }
+ 233          //初始化工作指示灯 初始化已在io_init中初始化
+ 234          void setup_nled(void) {
+ 235   1              nled_off();                     //工作指示灯关闭
+ 236   1      }
+ 237          //初始化蜂鸣器 初始化已在io_init中初始化
+ 238          void setup_beep(void) {
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 5   
+
+ 239   1              beep_off();                     //关闭蜂鸣器
+ 240   1      }                       
+ 241          //初始化舵机IO口
+ 242          void setup_djio(void) {
+ 243   1              dj_io_init();           //舵机IO口初始化
+ 244   1      }       
+ 245          
+ 246          void setup_vol(void) {
+ 247   1              adc_init(ADC_VOL);
+ 248   1      }
+ 249          
+ 250          //初始化存储器W25Q64
+ 251          void setup_w25q64(void) {
+ 252   1              //存储器初始化，读取ID进行校验，若错误则长鸣不往下执行
+ 253   1              w25x_init();
+ 254   1              while(w25x_readId()!= W25Q64)beep_on();
+ 255   1              
+ 256   1              w25x_read((u8 *)(&eeprom_info), W25Q64_INFO_ADDR_SAVE_STR, sizeof(eeprom_info_t));      //读取全局变量
+ 257   1              if(eeprom_info.version != VERSION) {    //判断版本是否是当前版本
+ 258   2                      eeprom_info.version = VERSION;          //复制当前版本
+ 259   2                      eeprom_info.dj_record_num = 0;          //学习动作组变量赋值0
+ 260   2                      rewrite_eeprom();                                       //写入到存储器
+ 261   2              } 
+ 262   1              
+ 263   1              if(eeprom_info.dj_bias_pwm[DJ_NUM] != FLAG_VERIFY) {
+ 264   2                      for(i=0;i<DJ_NUM;i++) {
+ 265   3                              eeprom_info.dj_bias_pwm[i] = 0;
+ 266   3                      }
+ 267   2                      eeprom_info.dj_bias_pwm[DJ_NUM] = FLAG_VERIFY;
+ 268   2              }
+ 269   1              
+ 270   1              
+ 271   1      //      for(i=0;i<DJ_NUM;i++) {
+ 272   1      //              duoji_doing[i].aim = 1500 + eeprom_info.dj_bias_pwm[i];
+ 273   1      //              duoji_doing[i].cur = 1500 + eeprom_info.dj_bias_pwm[i];
+ 274   1      //              duoji_doing[i].inc = 0;
+ 275   1      //      }
+ 276   1      }       
+ 277          
+ 278          //初始化PS2手柄
+ 279          void setup_ps2(void) {
+ 280   1              //手柄初始化
+ 281   1              psx_init();
+ 282   1      }
+ 283          //初始化定时器2 处理舵机PWM输出
+ 284          void setup_dj_timer(void) {
+ 285   1              timer1_init();  //舵机 定时器初始化
+ 286   1      }
+ 287          //初始化电机PWM定时
+ 288          void setup_car_pwm(void) {
+ 289   1              //小车 pwm 初始化
+ 290   1              pwm_init(CYCLE);
+ 291   1              car_pwm_set(0,0);       //设置小车的左右轮速度为0
+ 292   1      }       
+ 293          //初始化串口1
+ 294          void setup_uart1(void) {
+ 295   1              //串口1初始化
+ 296   1              uart1_init(115200);
+ 297   1              //uart1_close();
+ 298   1              uart1_open();
+ 299   1              //串口发送测试字符
+ 300   1              uart1_send_str((u8 *)"uart1 check ok!");
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 6   
+
+ 301   1      }
+ 302          //初始化串口2
+ 303          void setup_uart2(void) {
+ 304   1              //串口2初始化
+ 305   1              uart2_init(115200);
+ 306   1              //uart2_close();
+ 307   1              uart2_open();
+ 308   1              //串口发送测试字符
+ 309   1              uart2_send_str((u8 *)"uart2 check ok!");
+ 310   1      }       
+ 311          //初始化串口4
+ 312          void setup_uart4(void) {
+ 313   1              //串口4初始化
+ 314   1              uart4_init(115200);
+ 315   1              //uart4_close();
+ 316   1              uart4_open();
+ 317   1              
+ 318   1              //串口发送测试字符
+ 319   1              uart4_send_str((u8 *)"uart4 check ok!");
+ 320   1      }       
+ 321          //初始化滴答时钟，1S增加一次systick_ms的值
+ 322          void setup_systick(void) {
+ 323   1              //系统滴答时钟初始化   
+ 324   1              timer0_init();
+ 325   1      }       
+ 326          //初始化OLED
+ 327          void setup_oled(void) {
+ 328   1              //oled初始化
+ 329   1              OLED_Init();
+ 330   1              OLED_CLS();
+ 331   1              mdelay(500);
+ 332   1              oled_dis_init();
+ 333   1              mdelay(3000);
+ 334   1              OLED_CLS();
+ 335   1      }
+ 336          
+ 337          //初始化启动信号
+ 338          void setup_start(void) {
+ 339   1              //蜂鸣器LED 名叫闪烁 示意系统启动
+ 340   1              beep_on();nled_on();mdelay(100);beep_off();nled_off();mdelay(100);
+ 341   1              beep_on();nled_on();mdelay(100);beep_off();nled_off();mdelay(100);
+ 342   1              beep_on();nled_on();mdelay(100);beep_off();nled_off();mdelay(100);
+ 343   1      }       
+ 344          //初始化其他
+ 345          void setup_others(void) {       
+ 346   1              //机械臂蜷缩 G0002组
+ 347   1              memset(uart_receive_buf, 0, sizeof(uart_receive_buf));
+ 348   1              if(ACTION_USE_ROM) {
+ 349   2                      //使用存储在单片机内部rom中的动作组
+ 350   2                      strcpy((char *)uart_receive_buf, action_pre_group[2]);
+ 351   2              } else {
+ 352   2                      //从存储芯片中读取第group_num个动作组
+ 353   2                      w25x_read(uart_receive_buf, 2*ACTION_SIZE, ACTION_SIZE);        
+ 354   2              }
+ 355   1              //把读取出来的动作组传递到do_action执行
+ 356   1              for(i=16;i<strlen((char *)uart_receive_buf);i+=15) {
+ 357   2                      uart_receive_buf[i] = '0';
+ 358   2                      uart_receive_buf[i+1] = '0';
+ 359   2                      uart_receive_buf[i+2] = '0';
+ 360   2                      uart_receive_buf[i+3] = '0';
+ 361   2              }
+ 362   1              do_action(uart_receive_buf);
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 7   
+
+ 363   1              
+ 364   1              //执行预存命令 {G0000#000P1500T1000!#000P1500T1000!}
+ 365   1              if(eeprom_info.pre_cmd[PRE_CMD_SIZE] == FLAG_VERIFY) {
+ 366   2                      if(eeprom_info.pre_cmd[0] == '$') {
+ 367   3                              strcpy((char *)uart_receive_buf, (char *)eeprom_info.pre_cmd);
+ 368   3                              for(i=16;i<strlen((char *)uart_receive_buf);i+=15) {
+ 369   4                                      uart_receive_buf[i] = '0';
+ 370   4                                      uart_receive_buf[i+1] = '0';
+ 371   4                                      uart_receive_buf[i+2] = '0';
+ 372   4                                      uart_receive_buf[i+3] = '0';
+ 373   4                              }
+ 374   3                              do_action(uart_receive_buf);
+ 375   3                              
+ 376   3                      }
+ 377   2              }
+ 378   1              
+ 379   1      }
+ 380          
+ 381          //初始化总中断
+ 382          void setup_interrupt(void) {
+ 383   1              //串口1设为高优先级
+ 384   1              IP = 0X10;
+ 385   1              //IP2 = 0X01;
+ 386   1              //总中断打开
+ 387   1              EA = 1;
+ 388   1      }       
+ 389          //--------------------------------------------------------------------------------
+ 390          
+ 391          
+ 392          //--------------------------------------------------------------------------------
+ 393          /*
+ 394                  主循环函数实现
+ 395          */
+ 396          //循环执行工作指示灯，500ms跳动一次
+ 397          void loop_nled(void) {
+ 398   1              static u32 systick_ms_bak = 0;
+ 399   1              if(millis() - systick_ms_bak >= 500) {
+ 400   2                      systick_ms_bak = millis();
+ 401   2                      nled_switch();  
+ 402   2              }
+ 403   1      }               
+ 404          //串口数据接收处理
+ 405          void loop_uart(void) {
+ 406   1              static u8 do_once1 = 0, do_once2 = 0;
+ 407   1              if(uart1_get_ok) {
+ 408   2                      //测试发回去
+ 409   2                      //uart1_send_str(uart_receive_buf);
+ 410   2                      
+ 411   2                      if(uart1_mode == 1) {                                   //命令模式
+ 412   3                              //uart1_send_str(">cmd");
+ 413   3                              parse_cmd(uart_receive_buf);                    
+ 414   3                      } else if(uart1_mode == 2) {                    //单个舵机模式
+ 415   3                              //uart1_send_str(">sig");
+ 416   3                              do_action(uart_receive_buf);
+ 417   3                      } else if(uart1_mode == 3) {            //多个舵机模式
+ 418   3                              //uart1_send_str(">group:");
+ 419   3                              //总线下发
+ 420   3                              do_action(uart_receive_buf);
+ 421   3                      } else if(uart1_mode == 4) {            //保存模式
+ 422   3                              //uart1_send_str(">save");
+ 423   3                              //uart1_send_str(uart_receive_buf);
+ 424   3                              action_save(uart_receive_buf);
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 8   
+
+ 425   3                      } 
+ 426   2                      uart1_mode = 0;
+ 427   2                      uart1_get_ok = 0;
+ 428   2                      //uart1_open();
+ 429   2              }
+ 430   1              
+ 431   1      
+ 432   1              if(millis() - get_uart_timeout() > 100) {
+ 433   2                      if(!do_once1) {
+ 434   3                              timer1_open();
+ 435   3                              do_once1 = 1;
+ 436   3                              do_once2 = 0;
+ 437   3                      }
+ 438   2              } else {
+ 439   2                      if(!do_once2) {
+ 440   3                              timer1_close();
+ 441   3                              do_once1 = 0;
+ 442   3                              do_once2 = 1;
+ 443   3                      }
+ 444   2              }
+ 445   1              
+ 446   1              return;
+ 447   1      }       
+ 448          
+ 449          //定时保存一些变量
+ 450          void loop_save_something(void) {
+ 451   1              static u32 saveTime = 3000;
+ 452   1              if((djBiasSaveFlag == 1) && (millis() - bias_systick_ms_bak > saveTime)) {
+ 453   2                      djBiasSaveFlag = 0;
+ 454   2                      bias_systick_ms_bak = millis();
+ 455   2                      rewrite_eeprom();
+ 456   2              }       
+ 457   1              return;
+ 458   1      }       
+ 459          
+ 460          
+ 461          void loop_ps2_data(void) {
+ 462   1              static u32 systick_ms_bak = 0;
+ 463   1              if(millis() - systick_ms_bak < 20) {
+ 464   2                      return;
+ 465   2              }
+ 466   1              systick_ms_bak = millis();
+ 467   1              psx_write_read(psx_buf);
+ 468   1      #if 0   
+                      sprintf(cmd_return, "0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x,0x%02x\r\n", 
+                      (int)psx_buf[0], (int)psx_buf[1], (int)psx_buf[2], (int)psx_buf[3],
+                      (int)psx_buf[4], (int)psx_buf[5], (int)psx_buf[6], (int)psx_buf[7], (int)psx_buf[8]);
+                      uart1_send_str(cmd_return);
+              #endif  
+ 474   1              
+ 475   1              return;
+ 476   1      }
+ 477          
+ 478          
+ 479          void loop_ps2_car_pwm(void) {
+ 480   1              static int car_left_bak=0, car_right_bak=0;
+ 481   1              int car_left, car_right;
+ 482   1              
+ 483   1              if(psx_buf[1] != PS2_LED_RED)return;
+ 484   1              car_left = (127 - psx_buf[8]) * 8;
+ 485   1              car_right = (127 - psx_buf[6]) * 8;
+ 486   1              
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 9   
+
+ 487   1              if(car_left != car_left_bak || car_right != car_right_bak) {
+ 488   2                      car_pwm_set(car_left, car_right);
+ 489   2                      car_left_bak = car_left;
+ 490   2                      car_right_bak = car_right;
+ 491   2              }
+ 492   1      
+ 493   1      }
+ 494          
+ 495          
+ 496          
+ 497          void loop_ps2_button(void) {
+ 498   1              static unsigned char psx_button_bak[2] = {0};
+ 499   1              static unsigned char mode_bak;
+ 500   1      
+ 501   1              //处理智能模式 红灯模式下 智能模式取消，此时为遥控模式
+ 502   1              if(mode_bak != psx_buf[1]) {
+ 503   2                      mode_bak = psx_buf[1];
+ 504   2                      if(PS2_LED_RED == psx_buf[1]) {
+ 505   3                              smart_mode = 255;
+ 506   3                      }
+ 507   2                      car_pwm_set(0,0);
+ 508   2                      group_do_ok = 1;
+ 509   2                      //beep_on_times(1, 500);
+ 510   2              }
+ 511   1      
+ 512   1              if((psx_button_bak[0] == psx_buf[3])
+ 513   1              && (psx_button_bak[1] == psx_buf[4])) {                 
+ 514   2              } else {
+ 515   2                      parse_psx_buf(psx_buf+3, psx_buf[1]);
+ 516   2                      psx_button_bak[0] = psx_buf[3];
+ 517   2                      psx_button_bak[1] = psx_buf[4];
+ 518   2              }
+ 519   1              return;
+ 520   1      }
+ 521          
+ 522          void parse_psx_buf(unsigned char *buf, unsigned char mode) {
+ 523   1              u8 i, pos = 0;
+ 524   1              static u16 bak=0xffff, temp, temp2;
+ 525   1              temp = (buf[0]<<8) + buf[1];
+ 526   1              
+ 527   1              if(bak != temp) {
+ 528   2                      temp2 = temp;
+ 529   2                      temp &= bak;
+ 530   2                      for(i=0;i<16;i++) {
+ 531   3                              if((1<<i) & temp) {
+ 532   4                              } else {
+ 533   4                                      if((1<<i) & bak) {      //press
+ 534   5                                                                                                                              
+ 535   5                                              memset(uart_receive_buf, 0, sizeof(uart_receive_buf));                                  
+ 536   5                                              if(mode == PS2_LED_RED) {
+ 537   6                                                      memcpy((char *)uart_receive_buf, (char *)pre_cmd_set_red[i], strlen(pre_cmd_set_red[i]));
+ 538   6                                              } else if(mode == PS2_LED_GRN) {
+ 539   6                                                      memcpy((char *)uart_receive_buf, (char *)pre_cmd_set_grn[i], strlen(pre_cmd_set_grn[i]));
+ 540   6                                              } else continue;
+ 541   5                                              
+ 542   5                                              pos = str_contain_str(uart_receive_buf, "^");
+ 543   5                                              if(pos) uart_receive_buf[pos-1] = '\0';
+ 544   5                                              if(str_contain_str(uart_receive_buf, "$")) {
+ 545   6                                                      //uart1_close();
+ 546   6                                                      //uart1_get_ok = 1;
+ 547   6                                                      //uart1_mode = 1;
+ 548   6                                                      strcpy(cmd_return, uart_receive_buf+11);
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 10  
+
+ 549   6                                                      strcpy(uart_receive_buf, cmd_return);
+ 550   6                                                      parse_cmd(uart_receive_buf);
+ 551   6                                              } else if(str_contain_str(uart_receive_buf, "#")) {
+ 552   6                                                      //uart1_close();
+ 553   6                                                      //uart1_get_ok = 1;
+ 554   6                                                      //uart1_mode = 2;
+ 555   6                                                      strcpy(cmd_return, uart_receive_buf+11);
+ 556   6                                                      strcpy(uart_receive_buf, cmd_return);
+ 557   6                                                      do_action(uart_receive_buf);
+ 558   6                                              }
+ 559   5                                              
+ 560   5                                              //uart1_send_str(uart_receive_buf);
+ 561   5                                              //zx_uart_send_str(uart_receive_buf);
+ 562   5                                              
+ 563   5                                              bak = 0xffff;
+ 564   5                                      } else {//release
+ 565   5                                                                                      
+ 566   5                                              memset(uart_receive_buf, 0, sizeof(uart_receive_buf));                                  
+ 567   5                                              if(mode == PS2_LED_RED) {
+ 568   6                                                      memcpy((char *)uart_receive_buf, (char *)pre_cmd_set_red[i], strlen(pre_cmd_set_red[i]));
+ 569   6                                              } else if(mode == PS2_LED_GRN) {
+ 570   6                                                      memcpy((char *)uart_receive_buf, (char *)pre_cmd_set_grn[i], strlen(pre_cmd_set_grn[i]));
+ 571   6                                              } else continue;        
+ 572   5                                              
+ 573   5                                              pos = str_contain_str(uart_receive_buf, "^");
+ 574   5                                              if(pos) {
+ 575   6                                                      if(str_contain_str(uart_receive_buf+pos, "$")) {
+ 576   7                                                              //uart1_close();
+ 577   7                                                              //uart1_get_ok = 1;
+ 578   7                                                              //uart1_mode = 1;
+ 579   7                                                              strcpy(cmd_return, uart_receive_buf+pos);
+ 580   7                                                              cmd_return[strlen(cmd_return) - 1] = '\0';
+ 581   7                                                              strcpy(uart_receive_buf, cmd_return);
+ 582   7                                                              parse_cmd(uart_receive_buf);
+ 583   7                                                      } else if(str_contain_str(uart_receive_buf+pos, "#")) {
+ 584   7                                                              //uart1_close();
+ 585   7                                                              //uart1_get_ok = 1;
+ 586   7                                                              //uart1_mode = 2;
+ 587   7                                                              strcpy(cmd_return, uart_receive_buf+pos);
+ 588   7                                                              cmd_return[strlen(cmd_return) - 1] = '\0';
+ 589   7                                                              strcpy(uart_receive_buf, cmd_return);
+ 590   7                                                              do_action(uart_receive_buf);
+ 591   7                                                      }
+ 592   6                                                      //uart1_send_str(uart_receive_buf);
+ 593   6                                                      //zx_uart_send_str(uart_receive_buf);
+ 594   6                                              }       
+ 595   5                                      }
+ 596   4                                      //测试执行指令
+ 597   4                                      //uart1_send_str(uart_receive_buf);
+ 598   4      
+ 599   4                              }
+ 600   3                      }
+ 601   2                      bak = temp2;
+ 602   2                      beep_on();mdelay(50);beep_off();
+ 603   2              }       
+ 604   1              return;
+ 605   1      }
+ 606          
+ 607          void handle_uart(void) {
+ 608   1      
+ 609   1      
+ 610   1              return;
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 11  
+
+ 611   1      }
+ 612          
+ 613          /*
+ 614                  $DST!
+ 615                  $DST:x!
+ 616                  $RST!
+ 617                  $CGP:%d-%d!
+ 618                  $DEG:%d-%d!
+ 619                  $DGS:x!
+ 620                  $DGT:%d-%d,%d!
+ 621                  $DCR:%d,%d!
+ 622                  $DWA!
+ 623                  $DWD!
+ 624                  $DJR!
+ 625                  $GETA!
+ 626          */
+ 627          
+ 628          void parse_cmd(u8 *cmd) {
+ 629   1              //u32 uint1;
+ 630   1              static u8 djrFlag=0;
+ 631   1              u16 pos, i, index;
+ 632   1              int int1, int2;
+ 633   1              
+ 634   1              uart1_send_str(cmd);
+ 635   1              
+ 636   1              if(pos = str_contain_str(cmd, "$DST!"), pos) {
+ 637   2                      dbt_flag = 0;
+ 638   2                      group_do_ok  = 1;
+ 639   2                      for(i=0;i<DJ_NUM;i++) {
+ 640   3                              duoji_doing[i].inc = 0; 
+ 641   3                              duoji_doing[i].aim = duoji_doing[i].cur;
+ 642   3                      }
+ 643   2                      zx_uart_send_str("#255PDST!");
+ 644   2              } else if(pos = str_contain_str(cmd, "$DST:"), pos) {
+ 645   2                      if(sscanf(cmd, "$DST:%d!", &index)) {
+ 646   3                              duoji_doing[index].inc = 0;     
+ 647   3                              duoji_doing[index].aim = duoji_doing[index].cur;
+ 648   3                              sprintf(cmd_return, "#%03dPDST!", (int)index);
+ 649   3                              zx_uart_send_str(cmd_return);
+ 650   3                      }
+ 651   2                      
+ 652   2                      
+ 653   2              } else if(pos = str_contain_str(cmd, "$RST!"), pos) {           
+ 654   2                      soft_reset();
+ 655   2              } else if(pos = str_contain_str(cmd, "$CGP:"), pos) {           
+ 656   2                      if(sscanf(cmd, "$CGP:%d-%d!", &int1, &int2)) {
+ 657   3                              print_group(int1, int2);
+ 658   3                      }
+ 659   2              } else if(pos = str_contain_str(cmd, "$DEG:"), pos) {           
+ 660   2                      if(sscanf(cmd, "$DEG:%d-%d!", &int1, &int2)) {
+ 661   3                              erase_sector(int1, int2);
+ 662   3                      }
+ 663   2              } else if(pos = str_contain_str(cmd, "$DGS:"), pos) {           
+ 664   2                      if(sscanf(cmd, "$DGS:%d!", &int1)) {
+ 665   3                              do_group_once(int1);
+ 666   3                              group_do_ok = 1;
+ 667   3                      }
+ 668   2              } else if(pos = str_contain_str(cmd, "$DGT:"), pos) {           
+ 669   2                      if(sscanf((char *)cmd, "$DGT:%d-%d,%d!", &group_num_start, &group_num_end, &group_num_times)) {
+ 670   3                              //uart1_send_str("111111");                     
+ 671   3                              if(group_num_start != group_num_end) {
+ 672   4                                      do_start_index = group_num_start;
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 12  
+
+ 673   4                                      do_time = group_num_times;
+ 674   4                                      group_do_ok = 0;
+ 675   4                                      //uart1_send_str("22222");
+ 676   4                              } else {
+ 677   4                                      group_do_ok = 1;
+ 678   4                                      do_group_once(group_num_start);
+ 679   4                                      //uart1_send_str("33333");
+ 680   4                              }
+ 681   3                      }
+ 682   2              } else if(pos = str_contain_str(cmd, "$DCR:"), pos) {           
+ 683   2                      if(sscanf(cmd, "$DCR:%d,%d!", &int1, &int2)) {
+ 684   3                              car_pwm_set(int1, int2);
+ 685   3                      }
+ 686   2              } else if(pos = str_contain_str(cmd, "$DWA!"), pos) {           
+ 687   2                      car_dw--;
+ 688   2                      if(car_dw == 0)car_dw = 1;
+ 689   2                      beep_on();mdelay(100);beep_off();
+ 690   2              } else if(pos = str_contain_str(cmd, "$DWD!"), pos) {           
+ 691   2                      car_dw++;
+ 692   2                      if(car_dw == 4)car_dw = 3;
+ 693   2                      beep_on();mdelay(100);beep_off();
+ 694   2              } else if(pos = str_contain_str(cmd, "$CAR_FARWARD!"), pos) {           
+ 695   2                      car_pwm_set(1000, 1000);
+ 696   2              } else if(pos = str_contain_str(cmd, "$CAR_BACKWARD!"), pos) {          
+ 697   2                      car_pwm_set(-1000, -1000);
+ 698   2              } else if(pos = str_contain_str(cmd, "$CAR_LEFT!"), pos) {              
+ 699   2                      car_pwm_set(-1000, 1000);
+ 700   2              } else if(pos = str_contain_str(cmd, "$CAR_RIGHT!"), pos) {             
+ 701   2                      car_pwm_set(1000, -1000);
+ 702   2              } else if(pos = str_contain_str(cmd, "$DJR!"), pos) {   
+ 703   2                      zx_uart_send_str("#255P1500T2000!");            
+ 704   2                      for(i=0;i<DJ_NUM;i++) {
+ 705   3                              duoji_doing[i].aim  = 1500;
+ 706   3                              duoji_doing[i].time = 2000;
+ 707   3                              duoji_doing[i].inc = (duoji_doing[i].aim -  duoji_doing[i].cur) / (duoji_doing[i].time/20.000);
+ 708   3                      }
+ 709   2                      
+ 710   2                      if(djrFlag) {
+ 711   3                              do_group_once(1);
+ 712   3                      } else {
+ 713   3                              do_group_once(2);
+ 714   3                      }
+ 715   2                      djrFlag = !djrFlag;
+ 716   2              } else if(pos = str_contain_str(cmd, "$GETA!"), pos) {          
+ 717   2                      uart1_send_str("AAA");
+ 718   2              } else if(pos = str_contain_str(cmd, "$GETS!"), pos) {          
+ 719   2                      if(group_do_ok == 0) {
+ 720   3                              uart1_send_str("group_do_ok=0");
+ 721   3                      } else {
+ 722   3                              uart1_send_str("group_do_ok=1");
+ 723   3                      }
+ 724   2              } else if(pos = str_contain_str(cmd, "$GETINC!"), pos) {                
+ 725   2                      for(i=0;i<8;i++) {
+ 726   3                              sprintf(cmd_return, "inc%d = %f \r\n", (int)i, duoji_doing[i].inc);
+ 727   3                              uart1_send_str(cmd_return);
+ 728   3                      }
+ 729   2              }else if(pos = str_contain_str(uart_receive_buf, "$DBT:"), pos) {               
+ 730   2                      if(sscanf(uart_receive_buf, "$DBT:%d,%d!", &int1, &int2)) {
+ 731   3                              if(int1 == 1) {
+ 732   4                                      group_num_start = 1;
+ 733   4                                      group_num_end = 10;
+ 734   4                                      group_num_times = int2;
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 13  
+
+ 735   4                              } else if(int1 == 2) {
+ 736   4                                      group_num_start = 11;
+ 737   4                                      group_num_end = 20;
+ 738   4                                      group_num_times = int2;
+ 739   4                              } else if(int1 == 3) {
+ 740   4                                      group_num_start = 21;
+ 741   4                                      group_num_end = 30;
+ 742   4                                      group_num_times = int2;
+ 743   4                              } else if(int1 == 4) {
+ 744   4                                      group_num_start = 31;
+ 745   4                                      group_num_end = 40;
+ 746   4                                      group_num_times = int2;
+ 747   4                              } else {
+ 748   4                                      group_num_start = 0;
+ 749   4                                      group_num_end = 0;
+ 750   4                              }
+ 751   3                              
+ 752   3                              if(group_num_start != group_num_end) {
+ 753   4                                      do_start_index = group_num_start;
+ 754   4                                      do_time = group_num_times;
+ 755   4                                      group_do_ok = 0;
+ 756   4                                      dbt_flag = 1;
+ 757   4                              } else {
+ 758   4                                      do_group_once(group_num_start);
+ 759   4                              }
+ 760   3                              
+ 761   3                      }
+ 762   2              } else if(pos = str_contain_str(cmd, "$DRS!"), pos) {   
+ 763   2                      uart1_send_str("51MCU-IAP15W4K61S4");
+ 764   2              } else if(pos = str_contain_str(cmd, (u8 *)"$SMODE"), pos) {            
+ 765   2                      if(sscanf((char *)cmd, "$SMODE%d!", &int1)) {
+ 766   3                              if(int1 < 10) {
+ 767   4                                      smart_mode = int1;
+ 768   4                                      beep_on_times(1, 100);
+ 769   4                                      car_pwm_set(0,0);
+ 770   4                                      //uart1_send_str(cmd);
+ 771   4                              }
+ 772   3                      }
+ 773   2              } 
+ 774   1      }
+ 775          
+ 776          
+ 777          
+ 778          void action_save(u8 *str) {
+ 779   1              int action_index = 0;
+ 780   1              
+ 781   1              //uart1_send_str(uart_receive_buf);
+ 782   1              
+ 783   1              //预存命令处理
+ 784   1              if(str[1] == '$' && str[2] == '!') {
+ 785   2                      eeprom_info.pre_cmd[PRE_CMD_SIZE] = 0;
+ 786   2                      rewrite_eeprom();
+ 787   2                      uart1_send_str((u8 *)"@CLEAR PRE_CMD OK!");
+ 788   2                      return;
+ 789   2              } else if(str[1] == '$') {
+ 790   2                      memset(eeprom_info.pre_cmd, 0, sizeof(eeprom_info.pre_cmd));
+ 791   2                      strcpy((char *)eeprom_info.pre_cmd, (char *)str+1);
+ 792   2                      eeprom_info.pre_cmd[strlen((char *)str) - 2] = '\0';
+ 793   2                      eeprom_info.pre_cmd[PRE_CMD_SIZE] = FLAG_VERIFY;
+ 794   2                      rewrite_eeprom();
+ 795   2                      //uart1_send_str(eeprom_info.pre_cmd);
+ 796   2                      uart1_send_str((u8 *)"@SET PRE_CMD OK!");
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 14  
+
+ 797   2                      return;
+ 798   2              }
+ 799   1              
+ 800   1              action_index = get_action_index(str);
+ 801   1              //<G0001#001...>
+ 802   1              if((action_index == -1) || str[6] != '#'){
+ 803   2              //if( action_index == -1 ){
+ 804   2                      uart1_send_str("E");
+ 805   2                      return;
+ 806   2              }
+ 807   1              //save_action_index_bak++;
+ 808   1              if(action_index*ACTION_SIZE % W25Q64_SECTOR_SIZE == 0)w25x_erase_sector(action_index*ACTION_SIZE/W25Q64_S
+             -ECTOR_SIZE);
+ 809   1              replace_char(str, '<', '{');
+ 810   1              replace_char(str, '>', '}');
+ 811   1              w25x_write(str, action_index*ACTION_SIZE, strlen(str) + 1);
+ 812   1              uart1_send_str(str);
+ 813   1              uart1_send_str("A");
+ 814   1              return; 
+ 815   1      }
+ 816          
+ 817          int get_action_index(u8 *str) {
+ 818   1              int index = 0;
+ 819   1              //uart_send_str(str);
+ 820   1              while(*str) {
+ 821   2                      if(*str == 'G') {
+ 822   3                              str++;
+ 823   3                              while((*str != '#') && (*str != '$')) {
+ 824   4                                      index = index*10 + *str-'0';
+ 825   4                                      str++;  
+ 826   4                              }
+ 827   3                              return index;
+ 828   3                      } else {
+ 829   3                              str++;
+ 830   3                      }
+ 831   2              }
+ 832   1              return -1;
+ 833   1      }
+ 834          
+ 835          void print_group(int start, int end) {
+ 836   1              if(start > end) {
+ 837   2                      int_exchange(&start, &end);
+ 838   2              }
+ 839   1              for(;start<=end;start++) {
+ 840   2                      memset(uart_receive_buf, 0, sizeof(uart_receive_buf));
+ 841   2                      w25x_read(uart_receive_buf, start*ACTION_SIZE, ACTION_SIZE);
+ 842   2                      uart1_send_str(uart_receive_buf);
+ 843   2                      uart1_send_str("\r\n");
+ 844   2              }
+ 845   1      }
+ 846          
+ 847          
+ 848          void int_exchange(int *int1, int *int2) {
+ 849   1              int int_temp;
+ 850   1              int_temp = *int1;
+ 851   1              *int1 = *int2;
+ 852   1              *int2 = int_temp;
+ 853   1      }
+ 854          
+ 855          void erase_sector(int start, int end) {
+ 856   1              if(start > end) {
+ 857   2                      int_exchange(&start, &end);
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 15  
+
+ 858   2              }
+ 859   1              if(end >= 127)end = 127;
+ 860   1              for(;start<=end;start++) {
+ 861   2                      SpiFlashEraseSector(start);
+ 862   2                      sprintf(cmd_return, "@Erase %d OK!", start);
+ 863   2                      uart1_send_str(cmd_return);
+ 864   2              }
+ 865   1              save_action_index_bak = 0;
+ 866   1      }
+ 867          
+ 868          
+ 869          
+ 870          void do_group_once(int group_num) {
+ 871   1      //      //uart1_close();
+ 872   1      //      memset(uart_receive_buf, 0, sizeof(uart_receive_buf));
+ 873   1      //      w25x_read(uart_receive_buf, group_num*ACTION_SIZE, ACTION_SIZE);
+ 874   1      //      if(dbt_flag) {
+ 875   1      //              strcpy(uart_receive_buf, action_pre_group[group_num]);
+ 876   1      //      }
+ 877   1      //      do_action(uart_receive_buf);
+ 878   1      //      sprintf(cmd_return, "@DoGroup %d OK!\r\n\r\n", group_num);
+ 879   1      //      uart1_send_str(cmd_return);
+ 880   1      //      //uart1_open();
+ 881   1              
+ 882   1              memset(uart_receive_buf, 0, sizeof(uart_receive_buf));
+ 883   1              if(ACTION_USE_ROM) {
+ 884   2                      //使用存储在单片机内部rom中的动作组
+ 885   2                      strcpy((char *)uart_receive_buf, action_pre_group[group_num]);
+ 886   2              } else {
+ 887   2                      //从存储芯片中读取第group_num个动作组
+ 888   2                      w25x_read(uart_receive_buf, group_num*ACTION_SIZE, ACTION_SIZE);        
+ 889   2              }
+ 890   1              //把读取出来的动作组传递到do_action执行
+ 891   1              do_action(uart_receive_buf);
+ 892   1              sprintf((char *)cmd_return, "@DoGroup %d OK!\r\n", group_num);
+ 893   1              uart1_send_str(cmd_return);
+ 894   1      }
+ 895          
+ 896          
+ 897          float abs_float(float value) {
+ 898   1              if(value>0) {
+ 899   2                      return value;
+ 900   2              }
+ 901   1              return (-value);
+ 902   1      }
+ 903          
+ 904          void duoji_inc_handle(u8 index) {       
+ 905   1              int aim_temp;
+ 906   1              
+ 907   1              if(duoji_doing[index].inc != 0) {
+ 908   2                      
+ 909   2                      aim_temp = duoji_doing[index].aim;
+ 910   2                      
+ 911   2                      if(aim_temp > 2500){
+ 912   3                              aim_temp = 2500;
+ 913   3                      } else if(aim_temp < 500) {
+ 914   3                              aim_temp = 500;
+ 915   3                      }
+ 916   2              
+ 917   2                      if(abs_float(aim_temp - duoji_doing[index].cur) <= abs_float(duoji_doing[index].inc + duoji_doing[index]
+             -.inc)) {
+ 918   3                              duoji_doing[index].cur = aim_temp;
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 16  
+
+ 919   3                              duoji_doing[index].inc = 0;
+ 920   3                      } else {
+ 921   3                              duoji_doing[index].cur += duoji_doing[index].inc;
+ 922   3                      }
+ 923   2              }
+ 924   1      }
+ 925          
+ 926          
+ 927          void loop_action(void) {
+ 928   1              
+ 929   1              if(timer1_flag_dj) {
+ 930   2                      duoji_inc_handle(duoji_index1);
+ 931   2                      timer1_flag_dj = 0;
+ 932   2              }
+ 933   1              
+ 934   1              if((check_dj_state() == 0) && (group_do_ok == 0)) {
+ 935   2                      do_group_once(do_start_index);
+ 936   2                      
+ 937   2                      if(group_num_start<group_num_end) {
+ 938   3                              if(do_start_index == group_num_end) {
+ 939   4                                      do_start_index = group_num_start;
+ 940   4                                      if(group_num_times != 0) {
+ 941   5                                              do_time--;
+ 942   5                                              if(do_time == 0) {
+ 943   6                                                      group_do_ok = 1;
+ 944   6                                                      uart1_send_str((u8*)"@GroupDone!");
+ 945   6                                              }
+ 946   5                                      }
+ 947   4                                      return;
+ 948   4                              }
+ 949   3                              do_start_index++;
+ 950   3                      } else {
+ 951   3                              if(do_start_index == group_num_end) {
+ 952   4                                      do_start_index = group_num_start;
+ 953   4                                      if(group_num_times != 0) {
+ 954   5                                              do_time--;
+ 955   5                                              if(do_time == 0) {
+ 956   6                                                      group_do_ok = 1;
+ 957   6                                                      uart1_send_str((u8*)"@GroupDone!");
+ 958   6                                              }
+ 959   5                                      }
+ 960   4                                      return;
+ 961   4                              }
+ 962   3                              do_start_index--;
+ 963   3                      }
+ 964   2              }
+ 965   1              
+ 966   1      }
+ 967          
+ 968          u8 check_dj_state(void) {
+ 969   1              int i;
+ 970   1              for(i=0;i<DJ_NUM;i++) {
+ 971   2                      if(duoji_doing[i].inc) return 1;
+ 972   2              }
+ 973   1              return 0;
+ 974   1      }
+ 975          
+ 976          void do_action(u8 *uart_receive_buf) {
+ 977   1              u16 index,  time,i, lst_i, parse_ok;
+ 978   1              int bias;
+ 979   1              float pwm;
+ 980   1              float aim_temp;
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 17  
+
+ 981   1              zx_uart_send_str(uart_receive_buf);
+ 982   1              zx_uart_send_str("\r\n");
+ 983   1              
+ 984   1              if(uart_receive_buf[0] == '#' && uart_receive_buf[4] == 'P' && uart_receive_buf[5] == 'S' && uart_receive
+             -_buf[6] == 'C' && uart_receive_buf[7] == 'K' && uart_receive_buf[12] == '!') {
+ 985   2                      index = (uart_receive_buf[1] - '0')*100 + (uart_receive_buf[2] - '0')*10 + (uart_receive_buf[3] - '0');
+ 986   2                      bias = (uart_receive_buf[9] - '0')*100 + (uart_receive_buf[10] - '0')*10 + (uart_receive_buf[11] - '0');
+ 987   2                      if((bias >= -500) && (bias <= 500) && (index < DJ_NUM)) {
+ 988   3                              if(uart_receive_buf[8] == '+') {
+ 989   4                              } else if(uart_receive_buf[8] == '-') {
+ 990   4                                      bias = -bias;
+ 991   4                              }
+ 992   3                              aim_temp = duoji_doing[index].cur + 0.043198 - eeprom_info.dj_bias_pwm[index] + bias;
+ 993   3                              eeprom_info.dj_bias_pwm[index] = bias;                  
+ 994   3                              if(aim_temp > 2497){
+ 995   4                                      aim_temp = 2497;
+ 996   4                              } else if(aim_temp < 500) {
+ 997   4                                      aim_temp = 500;
+ 998   4                              }
+ 999   3                              
+1000   3                              duoji_doing[index].aim = aim_temp;
+1001   3                              duoji_doing[index].cur = aim_temp;
+1002   3                              duoji_doing[index].inc = 0;
+1003   3                              bias_systick_ms_bak = millis();
+1004   3                              djBiasSaveFlag = 1;
+1005   3                      }
+1006   2                      return;
+1007   2              }
+1008   1              
+1009   1                      
+1010   1              i = 0;parse_ok = 0;
+1011   1              while(uart_receive_buf[i]) {
+1012   2                      if(uart_receive_buf[i] == '#') {
+1013   3                              lst_i = i;
+1014   3                              index = 0;i++;
+1015   3                              while(uart_receive_buf[i] && (uart_receive_buf[i] != 'P')) {
+1016   4                                      index = index*10 + uart_receive_buf[i]-'0';i++;
+1017   4                              }
+1018   3                      } else if(uart_receive_buf[i] == 'P') {
+1019   3                              pwm = 0;i++;
+1020   3                              while(uart_receive_buf[i] && (uart_receive_buf[i] != 'T')) {
+1021   4                                      pwm = pwm*10 + uart_receive_buf[i]-'0';i++;
+1022   4                              }
+1023   3                      } else if(uart_receive_buf[i] == 'T') {
+1024   3                              time = 0;i++;
+1025   3                              while(uart_receive_buf[i] && (uart_receive_buf[i] != '!')) {
+1026   4                                      time = time*10 + uart_receive_buf[i]-'0';i++;
+1027   4                              }
+1028   3                              
+1029   3                              
+1030   3                              if(index < DJ_NUM && (pwm<=2500)&& (pwm>=500) && (time<10000)) {
+1031   4                                      //duoji_doing[index].inc = 0;
+1032   4                                      //uart1_send_str(uart_receive_buf);
+1033   4                                      if(duoji_doing[index].cur == pwm){
+1034   5                                              pwm = pwm+0.0031;
+1035   5                                      } 
+1036   4                                      
+1037   4                                      pwm += eeprom_info.dj_bias_pwm[index];
+1038   4                                      if(pwm>2497)pwm=2497;
+1039   4                                      if(pwm<500)pwm=500;
+1040   4                                      
+1041   4                                      
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 18  
+
+1042   4                                      if(time < 20) {
+1043   5                                              duoji_doing[index].aim = pwm;
+1044   5                                              duoji_doing[index].cur = pwm;
+1045   5                                              duoji_doing[index].inc = 0;
+1046   5                                      } else {
+1047   5                                              duoji_doing[index].aim = pwm;
+1048   5                                              duoji_doing[index].time = time;
+1049   5                                              duoji_doing[index].inc = (duoji_doing[index].aim -  duoji_doing[index].cur) / (duoji_doing[index].tim
+             -e/20.000);
+1050   5                                      }
+1051   4                                              //sprintf(cmd_return, "#%03dP%04dT%04d! %f \r\n", (int)index, (int)pwm, (int)time, duoji_doing[index]
+             -.inc);
+1052   4                                      //uart1_send_str(cmd_return);
+1053   4                              }
+1054   3                              
+1055   3                      } else {
+1056   3                              i++;
+1057   3                      }
+1058   2              }       
+1059   1      }
+1060          
+1061          void replace_char(u8*str, u8 ch1, u8 ch2) {
+1062   1              while(*str) {
+1063   2                      if(*str == ch1) {
+1064   3                              *str = ch2;
+1065   3                      } 
+1066   2                      str++;
+1067   2              }
+1068   1              return;
+1069   1      }
+1070          
+1071          
+1072          
+1073          /*
+1074          void car_io_set(int car_left, int car_right) {
+1075          
+1076                  sprintf(cmd_return, "car_io_set: %d,%d\r\n", car_left, car_right);
+1077                  uart1_send_str(cmd_return);
+1078                  
+1079                  
+1080                  if(car_left>100) {
+1081                          pwm4_io = 1;
+1082                          pwm5_io = 0;
+1083                  } else if(car_left<-100) {
+1084                          pwm4_io = 0;
+1085                          pwm5_io = 1;
+1086                  } else {
+1087                          pwm4_io = 0;
+1088                          pwm5_io = 0;
+1089                  }       
+1090                  
+1091                          if(car_right>100) {
+1092                          pwm2_io = 1;
+1093                          pwm3_io = 0;
+1094                  } else if(car_right<-100) {
+1095                          pwm2_io = 0;
+1096                          pwm3_io = 1;
+1097                  } else {
+1098                          pwm2_io = 0;
+1099                          pwm3_io = 0;
+1100                  }
+1101                  
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 19  
+
+1102          }
+1103          */
+1104          
+1105          
+1106          void loop_vol_warning(void) {
+1107   1              //static u8 flag = 0, flag_count = 0;
+1108   1              static u32 systick_ms_bak=0;
+1109   1              if(millis() - systick_ms_bak < 500)return;
+1110   1              systick_ms_bak = millis();
+1111   1              adc7_value = adc_read(ADC_VOL);
+1112   1              vol_adc = (adc7_value/1023.0) * 5.0 * 4;
+1113   1              
+1114   1      //      if((adc7_value > 5.2) && (adc7_value < 6.5)) {
+1115   1      //      //if((adc7_value/1023.0) * 5.0 * 4 < 6.5) {
+1116   1      //              if(flag) {
+1117   1      //                      beep_on();
+1118   1      //              } else {
+1119   1      //                      beep_off();
+1120   1      //              }
+1121   1      //              flag = !flag;
+1122   1      //              flag_count = 0;
+1123   1      //              sprintf(cmd_return, "vol=%d\n", (int)adc7_value); 
+1124   1      //              uart1_send_str(cmd_return);
+1125   1      //      } else {
+1126   1      //              flag_count++;
+1127   1      //              if(flag_count == 1) {
+1128   1      //                      beep_off();
+1129   1      //              } else {
+1130   1      //                      flag_count = 0;
+1131   1      //              }
+1132   1      //      }       
+1133   1      }
+1134          
+1135          void oled_dis_init(void) {
+1136   1              u8 i;
+1137   1              for(i=0;i<4;i++) {
+1138   2                      OLED_P16x16Ch(16*2 + i*16,0,i+8);
+1139   2              }
+1140   1              OLED_P8x16Str(0,3,"ZLTech 2017");
+1141   1              OLED_P6x8Str (0,6,"ZLTech 2017");
+1142   1      }
+1143          
+1144          void loop_oled_display(void) {
+1145   1      #if 0
+                      u8 i;
+                      OLED_Fill(0xFF);//
+                      mdelay(2000);
+                      OLED_Fill(0);//
+                      mdelay(2000);
+              
+                      for(i=0;i<4;i++) {
+                              OLED_P16x16Ch(i*16,2,i+8);
+                      }
+                      mdelay(2000);
+                      
+                      OLED_P8x16Str(0,0,"ZLTech 2017");//
+                      OLED_P8x16Str(0,2,"ZLTech 2017");
+                      OLED_P8x16Str(0,4,"ZLTech 2017");
+                      OLED_P6x8Str (0,6,"ZLTech 2017");
+                      OLED_P6x8Str (0,7,"ZLTech 2017");
+                      
+                      mdelay(2000);
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 20  
+
+                      OLED_CLS();//
+                      
+                      Draw_BMP(0,0,128,8,BMP1);  //
+                      delay(8000);
+                      Draw_BMP(0,0,128,8,BMP2);
+                      delay(8000);
+              #else 
+1171   1              u8 i;
+1172   1              static u32 dj_sum_aim, dj_sum_aim_bak, dj_sum_cur, dj_sum_cur_bak;
+1173   1              static u8 repeat_count = 0;
+1174   1              static float vol_adc_bak = 0;
+1175   1      
+1176   1              dj_sum_aim = 0;
+1177   1              dj_sum_cur = 0;
+1178   1              for(i=0;i<6;i++) {
+1179   2                      dj_sum_aim += (int)duoji_doing[i].aim;
+1180   2                      dj_sum_cur += (int)duoji_doing[i].cur;
+1181   2              }
+1182   1              
+1183   1              if((dj_sum_aim != dj_sum_aim_bak) || (dj_sum_cur != dj_sum_cur_bak) || ((vol_adc_bak - vol_adc <= -0.1) |
+             -| (vol_adc_bak - vol_adc >= 0.1))) {
+1184   2                      dj_sum_aim_bak = dj_sum_aim;
+1185   2                      dj_sum_cur_bak = dj_sum_cur;
+1186   2                      vol_adc_bak = vol_adc;
+1187   2                      repeat_count = 0;
+1188   2                      
+1189   2                      sprintf((char *)cmd_return, "+Voltage:%02.1f V+", vol_adc);
+1190   2                      //uart1_send_str(cmd_return);
+1191   2                      OLED_ShowStr(0,0, cmd_return, 2);       //测试6*8字符
+1192   2      
+1193   2                      for(i=0;i<6;i++) {
+1194   3                              sprintf((char *)cmd_return, " Aim%d:%04d Cur%d:%04d ", (int)i, (int)duoji_doing[i].aim, (int)i, (int)du
+             -oji_doing[i].cur);
+1195   3                              //uart1_send_str(cmd_return);
+1196   3                              OLED_ShowStr(0,i+2, cmd_return,1);      //
+1197   3                      }
+1198   2              } else {
+1199   2                      if(repeat_count < 10){
+1200   3                                                      
+1201   3                              sprintf((char *)cmd_return, "+Voltage:%02.1f V+ ", vol_adc);
+1202   3                              //uart1_send_str(cmd_return);
+1203   3                              OLED_ShowStr(0,0, cmd_return, 2);       //测试6*8字符
+1204   3      
+1205   3                              for(i=0;i<6;i++) {
+1206   4                                      sprintf((char *)cmd_return, " Aim%d:%04d Cur%d:%04d ", (int)i, (int)duoji_doing[i].aim, (int)i, (int)d
+             -uoji_doing[i].cur);
+1207   4                                      //uart1_send_str(cmd_return);
+1208   4                                      OLED_ShowStr(0,i+2, cmd_return,1);      //
+1209   4                              }
+1210   3                              repeat_count ++;
+1211   3                      }
+1212   2              }
+1213   1              
+1214   1      #endif
+1215   1      
+1216   1      }
+1217          
+1218          void handle_sensor(void) {
+1219   1      //      static u8 key1_flag = 0, key2_flag = 0, key1_sensor_flag = 0, key2_sensor_flag = 0;
+1220   1      //      static u32 systick_ms_bak = 0;
+1221   1      //      u16 adc0_value1, adc0_value2, adc0_value3;
+1222   1      //      
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 21  
+
+1223   1      ////    if(sensor_p07 == 0) {
+1224   1      ////            mdelay(20);
+1225   1      ////            //TO DO
+1226   1      ////            if(sensor_p07 == 0) {
+1227   1      ////            //TO DO
+1228   1      ////            }
+1229   1      ////    }
+1230   1      ////    
+1231   1      ////    if(sensor_p06 == 0) {
+1232   1      ////            mdelay(20);
+1233   1      ////            //TO DO
+1234   1      ////            if(sensor_p06 == 0) {
+1235   1      ////            //TO DO
+1236   1      ////            }
+1237   1      ////    }
+1238   1      ////    
+1239   1      ////    adc0_value = adc_read(0);
+1240   1      ////    adc1_value = adc_read(1);
+1241   1      ////    adc2_value = adc_read(2);
+1242   1      ////    adc6_value = adc_read(6);
+1243   1      //      
+1244   1      //      
+1245   1      //      if(key1 == 0) {
+1246   1      //              mdelay(20);
+1247   1      //              if(key1 == 0) {
+1248   1      //                      key1_flag = !key1_flag;
+1249   1      //                      if(key1_flag) {
+1250   1      //                              key1_led = 0;
+1251   1      //                              key1_sensor_flag = 1;
+1252   1      
+1253   1      //                              key2_sensor_flag = 0;
+1254   1      //                              key2_led = 1;
+1255   1      //                      } else {
+1256   1      //                              key1_led = 1;
+1257   1      //                              key1_sensor_flag = 0;
+1258   1      //                      }
+1259   1      //                      while(key1 == 0);
+1260   1      //                      beep_on();mdelay(50);beep_off();
+1261   1      //              }
+1262   1      //      }
+1263   1      //      
+1264   1      //      if(key2 == 0) {
+1265   1      //              mdelay(20);
+1266   1      //              if(key2 == 0) {
+1267   1      //                      key2_flag = !key2_flag;
+1268   1      //                      if(key2_flag) {
+1269   1      //                              key2_led = 0;
+1270   1      //                              key2_sensor_flag = 1;
+1271   1      //                              
+1272   1      //                              key1_sensor_flag = 0;
+1273   1      //                              key1_led = 1;
+1274   1      //                      } else {
+1275   1      //                              key2_led = 1;
+1276   1      //                              key2_sensor_flag = 0;
+1277   1      //                              //处理模拟传感器
+1278   1      //                      }
+1279   1      //                      while(key2 == 0);
+1280   1      //                      beep_on();mdelay(50);beep_off();
+1281   1      //              }
+1282   1      //      }
+1283   1      //      
+1284   1      //      //处理数字传感器
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 22  
+
+1285   1      //      if(key1_sensor_flag) {
+1286   1      //              if(sensor_p07 == 0) {
+1287   1      //                      mdelay(20);
+1288   1      //                      if(sensor_p07 == 0) {                           
+1289   1      //                              group_num_start = 31;
+1290   1      //                              group_num_end = 40;
+1291   1      //                              group_num_times = 1;
+1292   1      //                              do_start_index = group_num_start;
+1293   1      //                              do_time = group_num_times;
+1294   1      //                              group_do_ok = 0;
+1295   1      //                              dbt_flag = 1;
+1296   1      //                              while(sensor_p07 == 0);
+1297   1      //                              beep_on();mdelay(50);beep_off();
+1298   1      //                      }
+1299   1      //              } 
+1300   1      //              
+1301   1      //      } 
+1302   1      //      
+1303   1      //      //处理模拟传感器
+1304   1      //      if(key2_sensor_flag) {
+1305   1      //              if(millis() - systick_ms_bak > 100) {
+1306   1      //                      systick_ms_bak = millis();
+1307   1      //                      adc0_value = adc_read(0);
+1308   1      
+1309   1      //                      adc0_value1 = adc0_value<<2;
+1310   1      //                      adc0_value2 = adc0_value<<2;
+1311   1      //                      adc0_value3 = adc0_value<<2;
+1312   1      //                      
+1313   1      //                      if(adc0_value1>500)adc0_value1=500;
+1314   1      //                      if(adc0_value2>500)adc0_value2=500;
+1315   1      //                      if(adc0_value3>500)adc0_value3=500;
+1316   1      //                      
+1317   1      //                      sprintf((char *)uart_receive_buf, "{#001P%04dT0100!#002P%04dT0100!#003P%04dT0100!}", 
+1318   1      //                      1500+(adc0_value1),
+1319   1      //                      1500+(adc0_value2),
+1320   1      //                      1500+(adc0_value3));
+1321   1      //                      do_action(uart_receive_buf);
+1322   1      //              }
+1323   1      //      }
+1324   1      }
+1325          
+1326          //把eeprom_info写入到W25Q64_INFO_ADDR_SAVE_STR位置
+1327          void rewrite_eeprom(void) {
+1328   1              w25x_erase_sector(W25Q64_INFO_ADDR_SAVE_STR/W25Q64_SECTOR_SIZE);
+1329   1              w25x_write((u8 *)(&eeprom_info), W25Q64_INFO_ADDR_SAVE_STR, sizeof(eeprom_info_t));
+1330   1      }
+1331          
+1332          void loop_bt_once(void) {
+1333   1              static u8 first_change = 1, step = 0;
+1334   1              static u32 systick_ms_bak = 0;
+1335   1              if(first_change) {
+1336   2                      if((millis() - systick_ms_bak > 500) && (step == 0)) {
+1337   3                              systick_ms_bak = millis();
+1338   3                              uart4_init(9600);
+1339   3                              uart4_open();
+1340   3                              uart4_send_str((u8 *)"AT+BAUD8\r\n");
+1341   3                              step++;
+1342   3                      } else if((millis() - systick_ms_bak > 500) && (step == 1)){
+1343   3                              systick_ms_bak = millis();              
+1344   3                              uart4_init(115200);
+1345   3                              step++;
+1346   3                      }  else if((millis() - systick_ms_bak > 500) && (step == 2)){
+C51 COMPILER V9.01   MAIN                                                                  07/21/2018 10:35:43 PAGE 23  
+
+1347   3                              systick_ms_bak = millis();              
+1348   3                              uart4_send_str((u8 *)"AT+SPPNAMEZL-51-BT2.0\r\n");
+1349   3                              step++;
+1350   3                      } else if((millis() - systick_ms_bak > 500) && (step == 3)){
+1351   3                              systick_ms_bak = millis();
+1352   3                              uart4_send_str((u8 *)"AT+LENAMEZL-51-BT4.0\r\n");
+1353   3                              step++;
+1354   3                      } else if((millis() - systick_ms_bak > 500) && (step == 4)){
+1355   3                              systick_ms_bak = millis();
+1356   3                              uart4_send_str((u8 *)"AT+NAMEZL-51-BT2.0\r\n");
+1357   3                              step++;
+1358   3                              first_change = 0;
+1359   3                      } 
+1360   2              }
+1361   1      }
+1362          
+1363          void soft_reset(void) {
+1364   1              IAP_CONTR = 0X60;
+1365   1      }
+1366          
+1367          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   9885    ----
+   CONSTANT SIZE    =   5249    ----
+   XDATA SIZE       =    102      85
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

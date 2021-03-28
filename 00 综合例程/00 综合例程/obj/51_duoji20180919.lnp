@@ -1,0 +1,13 @@
+".\obj\z_main.obj",
+".\obj\z_adc.obj",
+".\obj\z_delay.obj",
+".\obj\z_global.obj",
+".\obj\z_gpio.obj",
+".\obj\z_ps2.obj",
+".\obj\z_pwm.obj",
+".\obj\z_sensor.obj",
+".\obj\z_timer.obj",
+".\obj\z_uart.obj",
+".\obj\z_w25q64.obj" 
+TO ".\obj\51_duoji20180919" 
+PRINT(".\lst\51_duoji20180919.m51")

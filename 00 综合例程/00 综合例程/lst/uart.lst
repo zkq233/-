@@ -1,0 +1,400 @@
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE UART
+OBJECT MODULE PLACED IN .\obj\uart.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\uart.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\lst\
+                    -uart.lst) OBJECT(.\obj\uart.obj)
+
+line level    source
+
+   1          #include "uart.h"
+   2          #include "stc15.h"
+   3          #include "global.h"
+   4          #include "timer.h"
+   5          #include "io.h"
+   6          #include <string.h>
+   7          
+   8          #define FOSC 22118400L          //系统频率
+   9          #define BAUD 115200L            //串口波特率
+  10          #define BAUD4 115200L            //串口波特率
+  11          
+  12          #define S2RI  0x01    // 宏定义 串口2寄存器
+  13          #define S2TI  0x02   // 宏定义 串口2寄存器
+  14          #define S4RI  0x01              //S4CON.0
+  15          #define S4TI  0x02              //S4CON.1
+  16          
+  17          #define S4_S0 0x04              //P_SW2.2
+  18          
+  19          
+  20          #define ISPPROGRAM() ((void(code*)())0xF000)()
+  21          
+  22          u8 busy2 = 0, busy4 = 0;
+  23          u32 uart_timeout = 0;
+  24          
+  25          u32 get_uart_timeout(void) {
+  26   1              return uart_timeout;
+  27   1      }
+  28          
+  29          void uart1_init(u32 baud) {
+  30   1              SCON |= 0x50;       //串口1方式1,接收充许    
+  31   1              T2L = (65536 - (FOSC/4/baud));
+  32   1              T2H = (65536 - (FOSC/4/baud))>>8;
+  33   1              AUXR |= 0x15;       //串口1使用独立波特率发生器，独立波特率发生器1T 
+  34   1              PCON = 0;//0x7F;    //
+  35   1              
+  36   1      //      SCON = 0x50;            //8位数据,可变波特率
+  37   1      //      AUXR |= 0x01;           //串口1选择定时器2为波特率发生器
+  38   1      //      AUXR |= 0x04;           //定时器2时钟为Fosc,即1T
+  39   1      //      T2L = 0xD0;                     //设定定时初值
+  40   1      //      T2H = 0xFF;                     //设定定时初值
+  41   1      //      AUXR |= 0x10;           //启动定时器2
+  42   1              
+  43   1              EA = 1;   
+  44   1              ES = 1;             //  
+  45   1      }
+  46          
+  47          void uart2_init(u32 baud) {
+  48   1              S2CON = 0x50;         //
+  49   1              T2L = (65536 - (FOSC/4/baud));    //
+  50   1              T2H = (65536 - (FOSC/4/baud))>>8; //
+  51   1              IE2 = 0x01;
+  52   1              P_SW2 |= 0x01;  //TX2 4.7 RX2 4.6       
+  53   1              EA = 1; 
+  54   1      }
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 2   
+
+  55          
+  56          void uart4_init(u32 baud) {
+  57   1      
+  58   1      //      S4CON = 0xda;
+  59   1      //    T4L = (65536 - (FOSC/4/BAUD4));   //设置波特率重装值
+  60   1      //    T4H = (65536 - (FOSC/4/BAUD4))>>8;
+  61   1      //    T4T3M |= 0x20;              //定时器4为1T模式
+  62   1      //    T4T3M |= 0x80;              //定时器4开始计时
+  63   1              
+  64   1              P_SW2 &= ~S4_S0;            //S4_S0=0 (P0.2/RxD4, P0.3/TxD4)
+  65   1              S4CON = 0x10;               //8位可变波特率
+  66   1              T2L = (65536 - (FOSC/4/baud));   //设置波特率重装值
+  67   1              T2H = (65536 - (FOSC/4/baud))>>8;
+  68   1              AUXR |= 0x14;                //T2为1T模式, 并启动定时器2
+  69   1          
+  70   1              IE2 |= 0x10;                 //使能串口4中断
+  71   1          EA = 1;
+  72   1      }
+  73          
+  74          
+  75          void uart1_open(void) {
+  76   1              ES = 1;
+  77   1      }
+  78          
+  79          void uart1_close(void) {
+  80   1              ES = 0;
+  81   1      }
+  82          
+  83          void uart2_open(void) {
+  84   1              //ES2 = 1;
+  85   1              IE2 |= 0x01; 
+  86   1      }
+  87          
+  88          void uart2_close(void) {
+  89   1              //ES2 = 0;
+  90   1              IE2 &= (~0x01); 
+  91   1      }
+  92          
+  93          void uart4_open(void) {
+  94   1              //ES2 = 1;
+  95   1              IE2 |= 0x10; 
+  96   1      }
+  97          
+  98          void uart4_close(void) {
+  99   1              //ES2 = 0;
+ 100   1              IE2 &= (~0x10); 
+ 101   1      }
+ 102          
+ 103          
+ 104          /*----------------------------
+ 105          
+ 106          ----------------------------*/
+ 107          void uart1_send_byte(u8 dat) {
+ 108   1          SBUF = dat;   
+ 109   1          while(TI == 0);   
+ 110   1          TI = 0; 
+ 111   1      }
+ 112          
+ 113          void uart2_send_byte(u8 dat) {
+ 114   1          S2BUF = dat;   
+ 115   1              while(!(S2CON & S2TI));
+ 116   1              S2CON &= ~S2TI; 
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 3   
+
+ 117   1      }
+ 118          
+ 119          void uart4_send_byte(u8 dat) {
+ 120   1          S4BUF = dat;                        //写数据到UART4数据寄存器
+ 121   1              while (!(S4CON & S4TI));        //等待前面的数据发送完成
+ 122   1          S4CON &= ~S4TI;                             //清除S4TI位
+ 123   1      }
+ 124          
+ 125          /*----------------------------
+ 126          
+ 127          ----------------------------*/
+ 128          void uart1_send_str(char *s) {
+ 129   1              timer1_close();
+ 130   1          while (*s) {                        //
+ 131   2              uart1_send_byte(*s++);         //
+ 132   2          }
+ 133   1              timer1_open();
+ 134   1      }
+ 135          
+ 136          void uart2_send_str(char *s) {
+ 137   1          while (*s) {                                //
+ 138   2              uart2_send_byte(*s++);         //
+ 139   2          }
+ 140   1      }
+ 141          
+ 142          void uart4_send_str(char *s) {
+ 143   1          while (*s) {                                //
+ 144   2              uart4_send_byte(*s++);         //
+ 145   2          }
+ 146   1      }
+ 147          
+ 148          void zx_uart_send_str(char *s) {
+ 149   1              uart1_get_ok = 1;
+ 150   1          while (*s) {                                //
+ 151   2              uart2_send_byte(*s++);         //
+ 152   2          }
+ 153   1              uart1_get_ok = 0;
+ 154   1      }
+ 155          
+ 156          
+ 157          /*----------------------------
+ 158          
+ 159          数据格式:
+ 160          
+ 161          命令          $xxx!
+ 162          单个舵机    #0P1000T1000!
+ 163          多个舵机    {#0P1000T1000!#1P1000T1000!}
+ 164          存储命令    <#0P1000T1000!#1P1000T1000!>
+ 165          
+ 166          -----------------------------*/
+ 167          void Uart1() interrupt 4 using 1 {
+ 168   1              static u16 buf_index = 0;
+ 169   1              static u8 sbuf_bak, cntf8 = 0;
+ 170   1              
+ 171   1          if (RI) {
+ 172   2                      RI = 0;                 //清除RI位
+ 173   2                      sbuf_bak = SBUF;
+ 174   2                      //uart1_send_byte(sbuf_bak);            
+ 175   2      
+ 176   2                      if(sbuf_bak == 0) {
+ 177   3                              cntf8++;
+ 178   3                              if(cntf8 >= 15) {
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 4   
+
+ 179   4                                      IAP_CONTR = 0X60;
+ 180   4                              }
+ 181   3                      } else {
+ 182   3                              cntf8 = 0;
+ 183   3                      }
+ 184   2                      
+ 185   2                      if(uart1_get_ok)return;
+ 186   2                      
+ 187   2                      if(sbuf_bak == '<') {
+ 188   3                              uart1_mode = 4;
+ 189   3                              buf_index = 0;
+ 190   3                              uart_timeout = millis();
+ 191   3                      } else if(uart1_mode == 0) {
+ 192   3                              if(sbuf_bak == '$') {
+ 193   4                                      uart1_mode = 1;
+ 194   4                              } else if(sbuf_bak == '#') {
+ 195   4                                      uart1_mode = 2;
+ 196   4                              } else if(sbuf_bak == '{') {
+ 197   4                                      uart1_mode = 3;
+ 198   4                                      uart_timeout = millis();
+ 199   4                              } else if(sbuf_bak == '<') {
+ 200   4                                      uart1_mode = 4;
+ 201   4                              } 
+ 202   3                              buf_index = 0;
+ 203   3                      }
+ 204   2                      
+ 205   2                      uart_receive_buf[buf_index++] = sbuf_bak;
+ 206   2                      
+ 207   2                      if(uart1_mode == 4) {
+ 208   3                              if(sbuf_bak == '>') {
+ 209   4                                      uart_receive_buf[buf_index] = '\0';
+ 210   4                                      uart1_get_ok = 1;
+ 211   4                                      buf_index = 0;
+ 212   4                              }
+ 213   3                      } else if((uart1_mode == 1) && (sbuf_bak == '!')){
+ 214   3                              uart_receive_buf[buf_index] = '\0';
+ 215   3                              uart1_get_ok = 1;
+ 216   3                              buf_index = 0;
+ 217   3                      } else if((uart1_mode == 2) && (sbuf_bak == '!')){
+ 218   3                              uart_receive_buf[buf_index] = '\0';
+ 219   3                              uart1_get_ok = 1;
+ 220   3                              buf_index = 0;
+ 221   3                      } else if((uart1_mode == 3) && (sbuf_bak == '}')){
+ 222   3                              uart_receive_buf[buf_index] = '\0';
+ 223   3                              uart1_get_ok = 1;
+ 224   3                              buf_index = 0;
+ 225   3                      }  
+ 226   2                      
+ 227   2                      if(buf_index >= UART_BUF_SIZE) {
+ 228   3                              buf_index = 0;
+ 229   3                      }
+ 230   2      
+ 231   2          }
+ 232   1              
+ 233   1      //    if (TI) {
+ 234   1      //        TI = 0;                 //清除TI位
+ 235   1      //    }
+ 236   1      }
+ 237          
+ 238          void UART2_Int(void) interrupt  8 using 1 // 串口2中断服务程序
+ 239          {
+ 240   1              static u16 buf_index = 0;
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 5   
+
+ 241   1              static u8 sbuf_bak;
+ 242   1              if(S2CON&S2RI)                          // 判断是不是接收数据引起的中断
+ 243   1              {   
+ 244   2                      sbuf_bak = S2BUF;
+ 245   2                      S2CON &= ~S2RI;
+ 246   2                      
+ 247   2                      if(uart1_get_ok)return;
+ 248   2                      
+ 249   2                      
+ 250   2                      if(sbuf_bak == '<') {
+ 251   3                              uart1_mode = 4;
+ 252   3                              buf_index = 0;
+ 253   3                              uart_timeout = millis();
+ 254   3                      } else if(uart1_mode == 0) {
+ 255   3                              if(sbuf_bak == '$') {
+ 256   4                                      uart1_mode = 1;
+ 257   4                              } else if(sbuf_bak == '#') {
+ 258   4                                      uart1_mode = 2;
+ 259   4                              } else if(sbuf_bak == '{') {
+ 260   4                                      uart1_mode = 3;
+ 261   4                              } else if(sbuf_bak == '<') {
+ 262   4                                      uart1_mode = 4;
+ 263   4                              } 
+ 264   3                              buf_index = 0;
+ 265   3                      }
+ 266   2                      
+ 267   2                      uart_receive_buf[buf_index++] = sbuf_bak;
+ 268   2                      
+ 269   2                      if(uart1_mode == 4) {
+ 270   3                              if(sbuf_bak == '>') {
+ 271   4                                      //uart1_close();
+ 272   4                                      uart_receive_buf[buf_index] = '\0';
+ 273   4                                      uart1_get_ok = 1;
+ 274   4                                      buf_index = 0;
+ 275   4                              }
+ 276   3                      } else if((uart1_mode == 1) && (sbuf_bak == '!')){
+ 277   3                              uart_receive_buf[buf_index] = '\0';
+ 278   3                              uart1_get_ok = 1;
+ 279   3                              buf_index = 0;
+ 280   3                      } else if((uart1_mode == 2) && (sbuf_bak == '!')){
+ 281   3                              uart_receive_buf[buf_index] = '\0';
+ 282   3                              uart1_get_ok = 1;
+ 283   3                              buf_index = 0;
+ 284   3                      } else if((uart1_mode == 3) && (sbuf_bak == '}')){
+ 285   3                              uart_receive_buf[buf_index] = '\0';
+ 286   3                              uart1_get_ok = 1;
+ 287   3                              buf_index = 0;
+ 288   3                      }   
+ 289   2      
+ 290   2                      if(buf_index >= UART_BUF_SIZE)buf_index = 0;
+ 291   2                      //uart2_send_byte(sbuf_bak);
+ 292   2              }
+ 293   1              
+ 294   1      //      if (S2CON&S2TI)// 接收到发送命令
+ 295   1      //      {
+ 296   1      //              busy2 = 0;
+ 297   1      //      }
+ 298   1      }
+ 299          
+ 300          /*----------------------------
+ 301          UART4 中断服务程序
+ 302          -----------------------------*/
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 6   
+
+ 303          void Uart4() interrupt 18 using 1  {
+ 304   1              static u16 buf_index = 0;
+ 305   1              static u8 sbuf_bak;
+ 306   1          if (S4CON & S4RI) {
+ 307   2              S4CON &= ~S4RI;         //清除S4RI位
+ 308   2              sbuf_bak = S4BUF;             //P0显示串口数据
+ 309   2      //        uart4_send_byte(sbuf_bak);
+ 310   2      //              return;
+ 311   2                      
+ 312   2                      if(uart1_get_ok)return;
+ 313   2                      
+ 314   2                      if(sbuf_bak == '<') {
+ 315   3                              uart1_mode = 4;
+ 316   3                              buf_index = 0;
+ 317   3                              uart_timeout = millis();
+ 318   3                      } else if(uart1_mode == 0) {
+ 319   3                              if(sbuf_bak == '$') {
+ 320   4                                      uart1_mode = 1;
+ 321   4                              } else if(sbuf_bak == '#') {
+ 322   4                                      uart1_mode = 2;
+ 323   4                              } else if(sbuf_bak == '{') {
+ 324   4                                      uart1_mode = 3;
+ 325   4                              } else if(sbuf_bak == '<') {
+ 326   4                                      uart1_mode = 4;
+ 327   4                              } 
+ 328   3                              buf_index = 0;
+ 329   3                      }
+ 330   2                      
+ 331   2                      uart_receive_buf[buf_index++] = sbuf_bak;
+ 332   2                      
+ 333   2                      if(uart1_mode == 4) {
+ 334   3                              
+ 335   3                              if(sbuf_bak == '>') {
+ 336   4                                      //uart1_close();
+ 337   4                                      uart_receive_buf[buf_index] = '\0';
+ 338   4                                      uart1_get_ok = 1;
+ 339   4                                      buf_index = 0;
+ 340   4                              }
+ 341   3                      } else if((uart1_mode == 1) && (sbuf_bak == '!')){
+ 342   3                              uart_receive_buf[buf_index] = '\0';
+ 343   3                              uart1_get_ok = 1;
+ 344   3                              buf_index = 0;
+ 345   3                      } else if((uart1_mode == 2) && (sbuf_bak == '!')){
+ 346   3                              uart_receive_buf[buf_index] = '\0';
+ 347   3                              uart1_get_ok = 1;
+ 348   3                              buf_index = 0;
+ 349   3                      } else if((uart1_mode == 3) && (sbuf_bak == '}')){
+ 350   3                              uart_receive_buf[buf_index] = '\0';
+ 351   3                              uart1_get_ok = 1;
+ 352   3                              buf_index = 0;
+ 353   3                      }   
+ 354   2      
+ 355   2                      if(buf_index >= UART_BUF_SIZE)buf_index = 0;
+ 356   2          }
+ 357   1      //    if (S4CON & S4TI)
+ 358   1      //    {
+ 359   1      //        S4CON &= ~S4TI;         //清除S4TI位
+ 360   1      //              busy4 = 0;               //清忙标志
+ 361   1      //    }
+ 362   1      }
+ 363          
+ 364          
+C51 COMPILER V9.01   UART                                                                  07/21/2018 10:35:44 PAGE 7   
+
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1540    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =     16      24
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
