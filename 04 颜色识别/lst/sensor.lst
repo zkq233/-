@@ -1,0 +1,450 @@
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE SENSOR
+OBJECT MODULE PLACED IN .\obj\sensor.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\sensor.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\ls
+                    -t\sensor.lst) OBJECT(.\obj\sensor.obj)
+
+line level    source
+
+   1          #include <stdio.h>
+   2          #include <string.h>
+   3          
+   4          #include "sensor.h"
+   5          #include "adc.h"
+   6          #include "global.h"
+   7          #include "io.h"
+   8          #include "pwm.h"
+   9          #include "timer.h"
+  10          #include "uart.h"
+  11          #include "main.h"
+  12          
+  13          
+  14          /*
+  15                  智能功能代码
+  16          */
+  17          
+  18          //左 P06 右 P07 默认标准输入 0 0
+  19          void setup_xunji(void) {
+  20   1      //      P0M1 &= ~(1<<6);
+  21   1      //      P0M0 &= ~(1<<6);
+  22   1      //      
+  23   1      //      P0M1 &= ~(1<<7);
+  24   1      //      P0M0 &= ~(1<<7);
+  25   1      }
+  26          
+  27          //P10 默认标准输入 0 0
+  28          void setup_sound() {
+  29   1      //      P1M1 &= ~(1<<0);
+  30   1      //      P1M0 &= ~(1<<0);
+  31   1      }
+  32          
+  33          //P12 AD
+  34          void setup_csb() {
+  35   1              adc_init(ADC_CSB);
+  36   1      }
+  37          
+  38          //P16 AD
+  39          void setup_yssb() {
+  40   1              adc_init(ADC_YSSB);
+  41   1      }
+  42          
+  43          //初始化传感器IO口
+  44          void setup_sensor(void) {
+  45   1              setup_xunji();  //初始化循迹
+  46   1              setup_sound();  //初始化声音
+  47   1              setup_csb();    //初始化超声波
+  48   1              setup_yssb();   //初始化颜色识别
+  49   1      }
+  50          
+  51          //处理智能传感器功能
+  52          void loop_smart_sensor(void) {
+  53   1              if(smart_mode == 0) {
+  54   2                      smart_xunji();                          //循迹模式
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 2   
+
+  55   2              } else if(smart_mode == 1) {
+  56   2                      smart_soundjiaqu();                     //声控夹取
+  57   2              } else if(smart_mode == 2) {
+  58   2                      smart_ziyoubizhang();           //自由避障
+  59   2              } else if(smart_mode == 3) {
+  60   2                      smart_yssbjiaqu();                      //颜色识别
+  61   2              } else if(smart_mode == 4) {
+  62   2                      smart_csbjiaqu();                       //定距夹取
+  63   2              } else if(smart_mode == 5) {
+  64   2                      smart_gensui();                         //跟随功能
+  65   2              } else if(smart_mode == 6) {
+  66   2                      smart_xunjibizhang();           //循迹避障
+  67   2              } else if(smart_mode == 7) {
+  68   2                      smart_xunjiyanse();                     //循迹识别
+  69   2              } else if(smart_mode == 8) {
+  70   2                      smart_xunjicsbjiaqu();          //循迹定距
+  71   2              } else if(smart_mode == 9) {
+  72   2                      group_do_ok = 1;
+  73   2              }       
+  74   1      }
+  75          
+  76          int get_adc_yssb_middle() {
+  77   1              u8 i;
+  78   1              static int ad_value[5] = {0}, ad_value_bak[5] = {0}, ad_index = 0, myvalue;
+  79   1              ad_value[ad_index] = adc_read(ADC_YSSB);
+  80   1              ad_value_bak[ad_index] = ad_value[ad_index];
+  81   1              ad_index ++ ;
+  82   1              if(ad_index == 5)ad_index = 0;
+  83   1              selection_sort(ad_value, 5);
+  84   1              myvalue = ad_value[2];
+  85   1              for(i=0;i<5;i++)ad_value[i] = ad_value_bak[i];
+  86   1              return myvalue;  
+  87   1      }
+  88          
+  89          int get_adc_csb_middle() {
+  90   1              u8 i;
+  91   1              static int ad_value[5] = {0}, ad_value_bak[5] = {0}, ad_index = 0, myvalue;
+  92   1              ad_value[ad_index] = adc_read(ADC_CSB);
+  93   1              ad_value_bak[ad_index] = ad_value[ad_index];
+  94   1              ad_index ++ ;
+  95   1              if(ad_index == 5)ad_index = 0;
+  96   1              selection_sort(ad_value, 5);
+  97   1              myvalue = ad_value[2];
+  98   1              for(i=0;i<5;i++)ad_value[i] = ad_value_bak[i];
+  99   1              return myvalue;  
+ 100   1      }
+ 101          
+ 102          
+ 103          void smart_xunji(void) {
+ 104   1              int speed = 600;
+ 105   1              if((xj0() == 0) && (xj1() == 1)) {
+ 106   2                      car_pwm_set(speed+200, 0);
+ 107   2              } else if((xj0() == 1) && (xj1() == 1)) {
+ 108   2                      car_pwm_set(speed, speed);
+ 109   2              } else if((xj0() == 1) && (xj1() == 0)) {
+ 110   2                      car_pwm_set(0, speed+200);
+ 111   2              }       
+ 112   1      }
+ 113          
+ 114          void smart_xunjibizhang(void) {
+ 115   1              static u32 systick_ms_bak = 0;
+ 116   1              int adc_csb;
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 3   
+
+ 117   1              
+ 118   1              if(millis() - systick_ms_bak > 50) {
+ 119   2                      systick_ms_bak = millis();
+ 120   2                      //避障处理
+ 121   2                      adc_csb = get_adc_csb_middle();//获取a0的ad值，计算出距离
+ 122   2                      //sprintf((char *)uart_receive_buf, "adc_csb = %d\r\n", adc_csb);
+ 123   2                      //uart1_send_str(uart_receive_buf);
+ 124   2                      if(adc_csb < 250) {//距离低于250mm就停止
+ 125   3                              car_pwm_set(0, 0);
+ 126   3                      } else {
+ 127   3                              //循迹处理
+ 128   3                              smart_xunji();
+ 129   3                      }
+ 130   2              }
+ 131   1      }
+ 132          
+ 133          
+ 134          void smart_gensui(void) {
+ 135   1              static u32 systick_ms_bak = 0;
+ 136   1              int speed = 500, adc_csb;
+ 137   1              if(millis() - systick_ms_bak > 20) {
+ 138   2                      systick_ms_bak = millis();
+ 139   2                      adc_csb = get_adc_csb_middle();//获取a0的ad值，计算出距离
+ 140   2                      if((adc_csb > 400) && (adc_csb < 1000)  ) {//距离400~1000mm前进
+ 141   3                              car_pwm_set(speed, speed);
+ 142   3                      } else if(adc_csb < 300) {//距离低于300mm就后退
+ 143   3                              car_pwm_set(-speed, -speed);
+ 144   3                      } else {//其他情况停止
+ 145   3                              car_pwm_set(0, 0);
+ 146   3                      }
+ 147   2              }
+ 148   1      }
+ 149          
+ 150          void smart_ziyoubizhang(void) {
+ 151   1              static u32 systick_ms_bak = 0;
+ 152   1              int speed = 600, adc_csb;
+ 153   1              if(millis() - systick_ms_bak > 100) {
+ 154   2                      systick_ms_bak = millis();
+ 155   2                      adc_csb = get_adc_csb_middle();//获取a0的ad值，计算出距离
+ 156   2                      //sprintf((char *)uart_receive_buf, "adc_csb = %d\r\n", adc_csb);
+ 157   2                      //uart1_send_str(uart_receive_buf);
+ 158   2                      if(adc_csb < 500) {//距离低于500mm就右转
+ 159   3                              car_pwm_set(1000, -1000);
+ 160   3                      } else {
+ 161   3                              car_pwm_set(speed, speed);
+ 162   3                      }
+ 163   2              }
+ 164   1      }
+ 165          
+ 166          void smart_csbjiaqu(void) {
+ 167   1              static u32 systick_ms_bak = 0;
+ 168   1              int adc_csb;
+ 169   1              if(group_do_ok == 0)return;
+ 170   1              //每20ms计算一次
+ 171   1              if(millis() - systick_ms_bak > 20) {
+ 172   2                      systick_ms_bak = millis();
+ 173   2                      adc_csb = get_adc_csb_middle();//获取a0的ad值，计算出距离
+ 174   2                      sprintf((char *)uart_receive_buf, "adc_csb = %d\r\n", adc_csb);
+ 175   2                      uart1_send_str(uart_receive_buf);
+ 176   2                      if((adc_csb > 150-15) && (adc_csb < 150+15)) {//距离290mm左右就夹取
+ 177   3                              parse_cmd((u8 *)"$DGT:3-11,1!");
+ 178   3                              beep_on_times(1, 100);
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 4   
+
+ 179   3                      } 
+ 180   2              }
+ 181   1      }
+ 182          
+ 183          void smart_yssbjiaqu(void) {
+ 184   1              static u8 getCount = 0, getCountOk = 0, i;
+ 185   1              static u32 systick_ms_bak = 0, systick_ms_bak2 = 0;
+ 186   1              static int adc_yssb;
+ 187   1              
+ 188   1              if(group_do_ok == 0)return;
+ 189   1              
+ 190   1      //      sprintf((char *)uart_receive_buf, "millis() = %ld  systick_ms_bak3 = %ld  nextComeTime = %ld\r\n", mill
+             -is(), systick_ms_bak3, nextComeTime);
+ 191   1      //      uart1_send_str(uart_receive_buf);
+ 192   1                      
+ 193   1              //每20ms获取一次数据
+ 194   1              if(millis() - systick_ms_bak2 > 20) {
+ 195   2                      systick_ms_bak2 = millis();
+ 196   2                      getCount ++;
+ 197   2                      adc_yssb = get_adc_yssb_middle();
+ 198   2                      if( getCount >= 5) {
+ 199   3                              getCount = 0;
+ 200   3                              getCountOk = 1;
+ 201   3                      }
+ 202   2              }
+ 203   1              
+ 204   1              //每5次识别一次
+ 205   1              if((millis() - systick_ms_bak > 100) && (getCountOk == 1)) {
+ 206   2                      systick_ms_bak = millis();
+ 207   2                      getCountOk = 0;
+ 208   2                      //获取a0的ad值
+ 209   2                      //sprintf((char *)uart_receive_buf, "adc_yssb = %d\r\n", adc_yssb);
+ 210   2                      //uart1_send_str(uart_receive_buf);
+ 211   2                      
+ 212   2                      if((adc_yssb>COLOR_RED-10) && (adc_yssb<COLOR_RED+10)) {
+ 213   3                              //RED
+ 214   3                              for(i=0;i<5;i++) {
+ 215   4                                      adc_yssb = get_adc_yssb_middle();
+ 216   4                                      mdelay(20);
+ 217   4                              }
+ 218   3                              if((adc_yssb>COLOR_RED-10) && (adc_yssb<COLOR_RED+10)) {
+ 219   4                                      //uart1_send_str("RED");
+ 220   4                                      parse_cmd((u8 *)"$DGT:12-18,1!");
+ 221   4                                      beep_on_times(1, 100);
+ 222   4                              }
+ 223   3                      } else if((adc_yssb>COLOR_GRN-10) && (adc_yssb<COLOR_GRN+10)) {
+ 224   3                              //GRN
+ 225   3                              for(i=0;i<5;i++) {
+ 226   4                                      adc_yssb = get_adc_yssb_middle();
+ 227   4                                      mdelay(20);
+ 228   4                              }
+ 229   3                              if((adc_yssb>COLOR_GRN-10) && (adc_yssb<COLOR_GRN+10)) {
+ 230   4                                      //uart1_send_str("GRN");
+ 231   4                                      parse_cmd((u8 *)"$DGT:19-27,1!");
+ 232   4                                      beep_on_times(1, 100);
+ 233   4                              }
+ 234   3                      } else if((adc_yssb>COLOR_BLU-10) && (adc_yssb<COLOR_BLU+10)) {
+ 235   3                              //BLU
+ 236   3                              for(i=0;i<5;i++) {
+ 237   4                                      adc_yssb = get_adc_yssb_middle();
+ 238   4                                      mdelay(20);
+ 239   4                              }
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 5   
+
+ 240   3                              if((adc_yssb>COLOR_BLU-10) && (adc_yssb<COLOR_BLU+10)) {
+ 241   4                                      //uart1_send_str("BLU");
+ 242   4                                      parse_cmd((u8 *)"$DGT:28-36,1!");
+ 243   4                                      beep_on_times(1, 100);
+ 244   4                              }
+ 245   3                      }  
+ 246   2                      
+ 247   2              }       
+ 248   1      }
+ 249          
+ 250          void smart_soundjiaqu(void) {
+ 251   1              
+ 252   1              static u8 justDo = 0;
+ 253   1              static u32 systick_ms_bak = 0, systick_ms_bak2 = 0;
+ 254   1              static int soundCount = 0;
+ 255   1      //      GPIO_InitTypeDef GPIO_InitStructure;
+ 256   1              
+ 257   1      //      if(!initOnce) {//引脚设为输入
+ 258   1      //              initOnce = 1;
+ 259   1      //              RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA , ENABLE);  
+ 260   1      //              GPIO_InitStructure.GPIO_Pin = GPIO_Pin_0;   //PA0
+ 261   1      //              GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;   
+ 262   1      //              GPIO_Init(GPIOA, &GPIO_InitStructure); 
+ 263   1      //      }
+ 264   1              
+ 265   1              if(group_do_ok == 0)return;//有动作执行，直接返回
+ 266   1              
+ 267   1              if(justDo) {               //结束执行响两声
+ 268   2                      justDo = 0;
+ 269   2                      beep_on_times(1, 1000);
+ 270   2              }
+ 271   1              
+ 272   1              if(millis() - systick_ms_bak > 10) {//计算在一秒内有几次响声
+ 273   2                      systick_ms_bak = millis();
+ 274   2                      if(sound() == 0) {
+ 275   3                              soundCount++;
+ 276   3                              while(sound() == 0);
+ 277   3                              if(soundCount == 1)systick_ms_bak2 = millis();
+ 278   3                      }
+ 279   2              }
+ 280   1              
+ 281   1              if(millis() - systick_ms_bak2 > 1000) {
+ 282   2                      systick_ms_bak2  = millis();
+ 283   2                      
+ 284   2      //              if(soundCount) {
+ 285   2      //                      sprintf((char *)uart_receive_buf, "soundCount = %d\r\n", (int)soundCount);
+ 286   2      //                      uart1_send_str(uart_receive_buf);
+ 287   2      //              }       
+ 288   2                      
+ 289   2                      if(soundCount>1) {                      //右放
+ 290   3                              parse_cmd((u8 *)"$DGT:28-36,1!");
+ 291   3                              beep_on_times(2, 100);
+ 292   3                              justDo = 1;
+ 293   3                      } else if(soundCount>0){        //左放
+ 294   3                              parse_cmd((u8 *)"$DGT:19-27,1!");
+ 295   3                              beep_on_times(1, 100);
+ 296   3                              justDo = 1;
+ 297   3                      } 
+ 298   2                      soundCount = 0; 
+ 299   2              }
+ 300   1      
+ 301   1              
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 6   
+
+ 302   1              
+ 303   1      }
+ 304          
+ 305          void smart_xunjicsbjiaqu() {
+ 306   1              static u32 systick_ms_bak = 0, nextStepTime = 50;
+ 307   1              int adc_csb;    
+ 308   1              if(group_do_ok == 0)return;
+ 309   1              adc_csb = get_adc_csb_middle();//获取a0的ad值，计算出距离
+ 310   1              if(millis() - systick_ms_bak > nextStepTime) {
+ 311   2                      systick_ms_bak = millis();
+ 312   2                      //sprintf((char *)uart_receive_buf, "adc0 = %d\r\n", adc_a0);
+ 313   2                      //uart1_send_str(uart_receive_buf);
+ 314   2                      
+ 315   2                      if(nextStepTime > 2000)beep_on_times(1, 300);
+ 316   2                      
+ 317   2                      if((adc_csb > 100-15) && (adc_csb < 100+15)) {//距离290mm左右就夹取
+ 318   3                              car_pwm_set(0, 0);
+ 319   3                              nextStepTime = 10000;
+ 320   3                              parse_cmd((u8 *)"$DGT:3-11,1!");
+ 321   3                      } else {
+ 322   3                              smart_xunji();
+ 323   3                              nextStepTime = 50;
+ 324   3                      }
+ 325   2              }
+ 326   1      }
+ 327          
+ 328          void smart_xunjiyanse(void) {   
+ 329   1              static u8 getCount = 0, getCountOk = 0, i, shibieOK = 0;
+ 330   1              static u32 systick_ms_bak = 0, systick_ms_bak2 = 0,  systick_ms_bak3 = 0;
+ 331   1              static int adc_yssb;
+ 332   1              
+ 333   1              if(group_do_ok == 0)return;
+ 334   1              
+ 335   1      //      sprintf((char *)uart_receive_buf, "millis() = %ld  systick_ms_bak3 = %ld  nextComeTime = %ld\r\n", mill
+             -is(), systick_ms_bak3, nextComeTime);
+ 336   1      //      uart1_send_str(uart_receive_buf);
+ 337   1                      
+ 338   1              //每20ms获取一次数据
+ 339   1              if(millis() - systick_ms_bak2 > 20) {
+ 340   2                      systick_ms_bak2 = millis();
+ 341   2                      getCount ++;
+ 342   2                      adc_yssb = get_adc_yssb_middle();
+ 343   2                      if( getCount >= 5) {
+ 344   3                              getCount = 0;
+ 345   3                              getCountOk = 1;
+ 346   3                      }
+ 347   2              }
+ 348   1              
+ 349   1              //每5次识别一次
+ 350   1              if((millis() - systick_ms_bak > 100) && (getCountOk == 1)) {
+ 351   2                      systick_ms_bak = millis();
+ 352   2                      getCountOk = 0;
+ 353   2                      //获取a0的ad值
+ 354   2                      //sprintf((char *)uart_receive_buf, "adc_yssb = %d\r\n", adc_yssb);
+ 355   2                      //uart1_send_str(uart_receive_buf);
+ 356   2                      
+ 357   2                      if((adc_yssb>COLOR_RED-10) && (adc_yssb<COLOR_RED+10)) {
+ 358   3                              //RED
+ 359   3                              car_pwm_set(0, 0);
+ 360   3                              for(i=0;i<5;i++) {
+ 361   4                                      adc_yssb = get_adc_yssb_middle();
+ 362   4                                      mdelay(20);
+C51 COMPILER V9.01   SENSOR                                                                07/21/2018 10:35:45 PAGE 7   
+
+ 363   4                              }
+ 364   3                              if((adc_yssb>COLOR_RED-10) && (adc_yssb<COLOR_RED+10)) {
+ 365   4                                      //uart1_send_str("RED");
+ 366   4                                      shibieOK = 1;
+ 367   4                                      //parse_cmd((u8 *)"$DGT:12-18,1!");
+ 368   4                                      
+ 369   4                                      parse_cmd((u8 *)"$DGT:19-27,1!");
+ 370   4                                      beep_on_times(1, 100);
+ 371   4                              }
+ 372   3      //              } else if((adc_yssb>COLOR_GRN-10) && (adc_yssb<COLOR_GRN+10)) {
+ 373   3      //                      //GRN
+ 374   3      //                      for(i=0;i<5;i++) {
+ 375   3      //                              adc_yssb = get_adc_yssb_middle();
+ 376   3      //                              mdelay(20);
+ 377   3      //                      }
+ 378   3      //                      if((adc_yssb>COLOR_GRN-10) && (adc_yssb<COLOR_GRN+10)) {
+ 379   3      //                              //uart1_send_str("GRN");
+ 380   3      //                              shibieOK = 1;
+ 381   3      //                              parse_cmd((u8 *)"$DGT:19-27,1!");
+ 382   3      //                              beep_on_times(1, 100);
+ 383   3      //                      }
+ 384   3                      } else if((adc_yssb>COLOR_BLU-10) && (adc_yssb<COLOR_BLU+10)) {
+ 385   3                              //BLU
+ 386   3                              car_pwm_set(0, 0);
+ 387   3                              for(i=0;i<5;i++) {
+ 388   4                                      adc_yssb = get_adc_yssb_middle();
+ 389   4                                      mdelay(20);
+ 390   4                              }
+ 391   3                              if((adc_yssb>COLOR_BLU-10) && (adc_yssb<COLOR_BLU+10)) {
+ 392   4                                      //uart1_send_str("BLU");
+ 393   4                                      shibieOK = 1;
+ 394   4                                      
+ 395   4                                      parse_cmd((u8 *)"$DGT:28-36,1!");
+ 396   4                                      beep_on_times(1, 100);
+ 397   4                              }
+ 398   3                      } else {
+ 399   3                              shibieOK = 0;
+ 400   3                      } 
+ 401   2                      
+ 402   2              }       
+ 403   1              
+ 404   1              if(shibieOK == 0) {
+ 405   2                      if(millis() - systick_ms_bak3 > 50) {
+ 406   3                              systick_ms_bak3 = millis();
+ 407   3                              smart_xunji();
+ 408   3                      }
+ 409   2              }
+ 410   1              
+ 411   1      
+ 412   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2438    ----
+   CONSTANT SIZE    =     70    ----
+   XDATA SIZE       =    114      12
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

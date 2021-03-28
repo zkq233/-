@@ -1,0 +1,102 @@
+C51 COMPILER V9.01   GLOBAL                                                                07/21/2018 10:35:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE GLOBAL
+OBJECT MODULE PLACED IN .\obj\global.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\global.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\ls
+                    -t\global.lst) OBJECT(.\obj\global.obj)
+
+line level    source
+
+   1          #include "global.h"
+   2          
+   3          duoji_doing_t duoji_doing[DJ_NUM];
+   4          u8 uart_receive_buf[UART_BUF_SIZE+4], uart1_get_ok, uart1_mode, uart_receive_buf_index;
+   5          u8 cmd_return[CMD_BUF_SIZE];
+   6          eeprom_info_t eeprom_info;
+   7          u8 timer1_flag_dj = 0;
+   8          u8 duoji_index1 = 0;
+   9          u8 smart_mode = 255;
+  10          u8 group_do_ok = 1;
+  11          
+  12          
+  13          
+  14          
+  15          void global_init(void) {
+  16   1      
+  17   1              u8 i;
+  18   1              for(i=0;i<DJ_NUM;i++) {
+  19   2                      duoji_doing[i].aim = 1501;
+  20   2                      duoji_doing[i].cur = 1501;
+  21   2                      duoji_doing[i].inc = 0;         
+  22   2              }
+  23   1              
+  24   1              uart1_get_ok = 0;
+  25   1              uart1_mode = 0;
+  26   1              uart_receive_buf_index = 0;
+  27   1              //uart_get_timeout = 0;
+  28   1      }
+  29          
+  30          u16 str_contain_str(u8 *str, u8 *str2) {
+  31   1              u8 *str_temp, *str_temp2;
+  32   1              str_temp = str;
+  33   1              str_temp2 = str2;
+  34   1              while(*str_temp) {
+  35   2                      if(*str_temp == *str_temp2) {
+  36   3                              while(*str_temp2) {
+  37   4                                      if(*str_temp++ != *str_temp2++) {
+  38   5                                              str_temp = str_temp - (str_temp2-str2) + 1;
+  39   5                                              str_temp2 = str2;
+  40   5                                              break;
+  41   5                                      }       
+  42   4                              }
+  43   3                              if(!*str_temp2) {
+  44   4                                      return (str_temp-str);
+  45   4                              }
+  46   3                              
+  47   3                      } else {
+  48   3                              str_temp++;
+  49   3                      }
+  50   2              }
+  51   1              return 0;
+  52   1      }
+  53          
+  54          void selection_sort(int *a, int len) {
+C51 COMPILER V9.01   GLOBAL                                                                07/21/2018 10:35:44 PAGE 2   
+
+  55   1          int i,j,mi,t;
+  56   1          for(i=0;i<len-1;i++) {
+  57   2              mi = i;
+  58   2              for(j=i+1;j<len;j++) {
+  59   3                  if(a[mi] > a[j]) {
+  60   4                      mi = j;    
+  61   4                  }    
+  62   3              }    
+  63   2                      
+  64   2              if(mi != i) {
+  65   3                  t = a[mi];
+  66   3                  a[mi] = a[i];
+  67   3                  a[i] = t;    
+  68   3              }
+  69   2          }
+  70   1      }
+  71          
+  72          //int型 取绝对值函数
+  73          int abs_int(int int1) {
+  74   1              if(int1 > 0)return int1;
+  75   1              return (-int1);
+  76   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    700    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =    890      22
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

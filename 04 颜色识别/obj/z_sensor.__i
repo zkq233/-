@@ -1,0 +1,1 @@
+"src\z_sensor.c" LARGE OPTIMIZE (8,SPEED) BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\lst\z_sensor.lst) TABS (2) OBJECT(.\obj\z_sensor.obj)

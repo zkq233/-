@@ -1,0 +1,84 @@
+C51 COMPILER V9.01   IO                                                                    07/21/2018 10:35:44 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE IO
+OBJECT MODULE PLACED IN .\obj\io.obj
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE src\io.c LARGE BROWSE ORDER INCDIR(.\src) DEBUG OBJECTEXTEND PRINT(.\lst\io
+                    -.lst) OBJECT(.\obj\io.obj)
+
+line level    source
+
+   1          #include "io.h"
+   2          
+   3          
+   4          void io_init(void) {
+   5   1      
+   6   1              P0M1=0x00;                                 
+   7   1              P0M0=0x30;
+   8   1      
+   9   1              P1M1=0x00;                                 
+  10   1              P1M0=0x00;
+  11   1      
+  12   1              P2M1=0x00;
+  13   1              P2M0=0x1e;
+  14   1                                        
+  15   1              P3M1=0x00;
+  16   1              P3M0=0x90;      
+  17   1      
+  18   1              P4M1=0x00;                                
+  19   1              P4M0=0x00;
+  20   1      
+  21   1      //      P5M1=0x00;                               
+  22   1      //      P5M0=0x00;
+  23   1              
+  24   1              key1_led = 1;
+  25   1              key2_led = 1;
+  26   1      }
+  27          
+  28          
+  29          void dj_io_init(void) {
+  30   1              dj0 = 1;
+  31   1              dj1 = 1;
+  32   1              dj2 = 1;
+  33   1              dj3 = 1;
+  34   1              dj4 = 1;
+  35   1              dj5 = 1;
+  36   1      }
+  37          
+  38          void dj_io_set(u8 index, u8 level) {
+  39   1              switch(index) {
+  40   2                      case 0:dj0 = level;break;
+  41   2                      case 1:dj1 = level;break;
+  42   2                      case 2:dj2 = level;break;
+  43   2                      case 3:dj3 = level;break;
+  44   2                      case 4:dj4 = level;break;
+  45   2                      case 5:dj5 = level;break;
+  46   2                      default:break;
+  47   2              }
+  48   1      }
+  49          
+  50          void beep_on_times(int times, int delay) {
+  51   1              int i;
+  52   1              for(i=0;i<times;i++) {
+  53   2                      beep_on();
+  54   2                      mdelay(delay);
+C51 COMPILER V9.01   IO                                                                    07/21/2018 10:35:44 PAGE 2   
+
+  55   2                      beep_off();
+  56   2                      mdelay(delay);
+  57   2              }
+  58   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    187    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----       6
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

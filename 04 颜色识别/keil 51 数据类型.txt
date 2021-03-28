@@ -1,0 +1,38 @@
+   表1 Keil uVision4面向51单片机的基本数据类型各种属性一览表
+  ╭═══════════════════════════════╮ 
+ ║类 别   ║ 数 据 类 型            ║长 度║          值 域      ║ 
+ ║════════════════════════════════║
+ ║            ║unsigned char     ║1字节║0～255                 ║ 
+ ║字符型║signed char          ║1字节║-128～+127                ║
+ ║            ║char                       ║1字节║-128～+127    ║ 
+ ║════════════════════════════════║
+ ║      ║unsigned short int    ║2字节║0～65535                 ║
+ ║      ║signed short int  ║2字节║-32768～+32767               ║ 
+ ║      ║short int         ║2字节║-32768～+32767               ║ 
+ ║      ║════════════════════════════║ 
+ ║      ║unsigned short    ║2字节║0～65535                     ║ 
+ ║整 型 ║signed short      ║2字节║-32768～+32767               ║ 
+ ║      ║short             ║2字节║-32768～+32767               ║ 
+ ║      ║════════════════════════════║   
+ ║      ║unsigned int      ║2字节║0～65535                     ║ 
+ ║      ║signed int        ║2字节║-32768～+32767               ║ 
+ ║      ║int               ║2字节║-32768～+32767               ║ 
+ ║════════════════════════════════║ 
+ ║      ║unsigned long int ║4字节║0～4294967295                ║ 
+ ║      ║signed long int   ║4字节║-2147483648～+2147483647     ║ 
+ ║      ║long int          ║4字节║-2147483648～+2147483647     ║ 
+ ║长整型║════════════════════════════║ 
+ ║      ║unsigned long     ║4字节║0～4294967295                ║ 
+ ║      ║signed long       ║4字节║-2147483648～+2147483647     ║ 
+ ║      ║long              ║4字节║-2147483648～+2147483647     ║ 
+ ║════════════════════════════════║ 
+ ║      ║float             ║4字节║±1.75494E-38～±3.402823E+38║ 
+ ║浮点型║double            ║4字节║±1.75494E-38～±3.402823E+38║ 
+ ║════════════════════════════════║ 
+ ║      ║bit               ║1位  ║0，1                         ║ 
+ ║位 型 ║sbit              ║1位  ║0，1                         ║ 
+ ║════════════════════════════════║ 
+ ║      ║sbit              ║1位  ║0，1                         ║ 
+ ║SFR 型║sfr               ║1字节║0～255                       ║ 
+ ║      ║sfr16             ║2字节║0～65535                     ║ 
+ ╰════════════════════════════════╯
